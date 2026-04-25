@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    @apply font-sans text-gray-900 bg-gray-50 antialiased;
+    margin: 0;
+  }
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #d66000;
+  }
+}
+
+@layer utilities {
+  .transition-base {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #d5d7da transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #d5d7da; border-radius: 2px; }
+}

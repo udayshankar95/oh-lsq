@@ -1,0 +1,249 @@
+{
+  "info": {
+    "name": "OH-LSQ API",
+    "description": "Orange Health Lead Scheduling & Queue Engine — API Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "agentToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (Manager)",
+          "event": [{ "listen": "test", "script": { "exec": ["if (pm.response.code === 200) { pm.collectionVariables.set('token', pm.response.json().token); }"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"manager1@oh.in\",\n  \"password\": \"password123\"\n}" }
+          }
+        },
+        {
+          "name": "Login (Agent)",
+          "event": [{ "listen": "test", "script": { "exec": ["if (pm.response.code === 200) { pm.collectionVariables.set('agentToken', pm.response.json().token); }"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"agent1@oh.in\",\n  \"password\": \"password123\"\n}" }
+          }
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/auth/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "OMS Webhook",
+      "item": [
+        {
+          "name": "Ingest Single-Patient Request",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/oms/event",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_id\": \"REQ-{{$randomInt}}\",\n  \"doctor_name\": \"Dr. Test Kumar\",\n  \"partner_name\": \"Test Clinic\",\n  \"prescription_url\": \"https://storage.orangehealth.in/rx/test.jpg\",\n  \"oh_notes\": \"Urgent — corporate patient\",\n  \"orders\": [\n    {\n      \"order_id\": \"ORD-{{$randomInt}}\",\n      \"customer_name\": \"Ravi Patel\",\n      \"patient_name\": \"Ravi Patel\",\n      \"patient_phone\": \"9876543210\",\n      \"patient_age\": 42,\n      \"patient_gender\": \"Male\",\n      \"tests\": [\"CBC\", \"Lipid Profile\", \"HbA1c\"],\n      \"packages\": [],\n      \"preferred_slot\": \"2026-03-20T08:00:00+05:30\",\n      \"order_value\": 1500\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Ingest Multi-Patient Request",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/oms/event",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_id\": \"REQ-MULTI-{{$randomInt}}\",\n  \"doctor_name\": \"Dr. Family Doc\",\n  \"partner_name\": \"Family Clinic\",\n  \"prescription_url\": null,\n  \"oh_notes\": null,\n  \"orders\": [\n    {\n      \"order_id\": \"ORD-M1-{{$randomInt}}\",\n      \"customer_name\": \"Suresh Kumar\",\n      \"patient_name\": \"Suresh Kumar\",\n      \"patient_phone\": \"9812345678\",\n      \"patient_age\": 50,\n      \"patient_gender\": \"Male\",\n      \"tests\": [\"CBC\", \"Blood Sugar Fasting\"],\n      \"packages\": [],\n      \"order_value\": 700\n    },\n    {\n      \"order_id\": \"ORD-M2-{{$randomInt}}\",\n      \"customer_name\": \"Suresh Kumar\",\n      \"patient_name\": \"Meera Kumar\",\n      \"patient_phone\": \"9812345678\",\n      \"patient_age\": 46,\n      \"patient_gender\": \"Female\",\n      \"tests\": [\"Thyroid Profile\"],\n      \"packages\": [\"Women's Health Package\"],\n      \"order_value\": 1800\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent — Punch In/Out",
+      "item": [
+        {
+          "name": "Punch In",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/agents/punch-in",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        },
+        {
+          "name": "Punch Out",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/agents/punch-out",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        },
+        {
+          "name": "My Sessions",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/agents/sessions",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent — Tasks",
+      "item": [
+        {
+          "name": "My Queue",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/tasks/my-queue",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        },
+        {
+          "name": "Get Task Detail",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/tasks/1",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        },
+        {
+          "name": "Start Task (Lock)",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/tasks/1/start",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        },
+        {
+          "name": "Submit Outcome — No Answer",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/tasks/1/outcome",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"outcome\": \"NO_ANSWER\",\n  \"notes\": \"Phone rang, no response\"\n}" }
+          }
+        },
+        {
+          "name": "Submit Outcome — Scheduled",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/tasks/1/outcome",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"outcome\": \"CONNECTED_SCHEDULED\",\n  \"notes\": \"Patient confirmed 8AM slot\"\n}" }
+          }
+        },
+        {
+          "name": "Submit Outcome — Call Later",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/tasks/1/outcome",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"outcome\": \"CALL_LATER\",\n  \"notes\": \"Patient in a meeting\",\n  \"callback_time\": \"2026-03-18T18:00:00\"\n}" }
+          }
+        },
+        {
+          "name": "Abandon Task",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/tasks/1/abandon",
+            "header": [{ "key": "Authorization", "value": "Bearer {{agentToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leads",
+      "item": [
+        {
+          "name": "List Leads",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/leads",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Search Leads",
+          "request": {
+            "method": "GET", "url": { "raw": "{{baseUrl}}/api/leads?q=Rahul&state=ATTEMPTING", "query": [{ "key": "q", "value": "Rahul" }, { "key": "state", "value": "ATTEMPTING" }] },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Get Lead Detail",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/leads/1",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Manager",
+      "item": [
+        {
+          "name": "Dashboard Metrics",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/manager/dashboard",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Agent List",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/manager/agents",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Missed Follow-ups",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/manager/missed-followups",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Queue Health",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/manager/queue-health",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Reassign Lead",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/manager/leads/1/reassign",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"agent_id\": 3 }" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Priority Buckets",
+      "item": [
+        {
+          "name": "List Buckets",
+          "request": {
+            "method": "GET", "url": "{{baseUrl}}/api/buckets",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Create Bucket",
+          "request": {
+            "method": "POST", "url": "{{baseUrl}}/api/buckets",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"High Value Orders\",\n  \"conditions\": { \"task_type\": [\"FIRST_CALL\"] },\n  \"display_order\": 1\n}" }
+          }
+        },
+        {
+          "name": "Reorder Buckets",
+          "request": {
+            "method": "PUT", "url": "{{baseUrl}}/api/buckets/reorder/apply",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"order\": [\n    { \"id\": 1, \"display_order\": 1 },\n    { \"id\": 2, \"display_order\": 2 },\n    { \"id\": 3, \"display_order\": 3 }\n  ]\n}" }
+          }
+        }
+      ]
+    }
+  ]
+}
