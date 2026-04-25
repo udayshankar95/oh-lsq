@@ -6,6 +6,9 @@ const RETRY_DELAY_MINUTES = 15;
 const FOLLOW_UP_DELAY_MINUTES = 30;
 const PAYMENT_REMINDER_MINUTES = 120;
 
+// Terminal states that cannot receive new outcomes
+const TERMINAL_STATES = new Set(['SCHEDULED', 'CANCELLED', 'UNREACHABLE']);
+
 export async function processOutcome(
   taskId: number,
   leadId: number,
@@ -15,6 +18,28 @@ export async function processOutcome(
   callbackTime: string | null,
   cancellationReason: string | null
 ): Promise<void> {
+  // Guard: re-fetch lead state immediately before writing anything.
+  // Prevents race where OMS cancels the lead while the agent is mid-call.
+  const leadCheck = await queryOne<{ state: string; attempt_count: number; max_attempts: number }>(
+    `SELECT state, attempt_count, max_attempts FROM leads WHERE id = $1`,
+    [leadId]
+  );
+
+  if (!leadCheck) throw new Error(`Lead ${leadId} not found`);
+
+  if (TERMINAL_STATES.has(leadCheck.state)) {
+    // Lead was closed externally (e.g. OMS cancelled) while agent was on call.
+    // Mark the task abandoned so the agent's queue clears, but do NOT create
+    // new tasks or change lead state — it's already terminal.
+    await query(
+      `UPDATE tasks SET status = 'ABANDONED', updated_at = NOW() WHERE id = $1`,
+      [taskId]
+    );
+    throw new Error(
+      `LEAD_TERMINAL:${leadCheck.state}` // caller surfaces this to the agent as a clear message
+    );
+  }
+
   // Mark task as completed
   await query(`UPDATE tasks SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1`, [taskId]);
 

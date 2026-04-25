@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { formatDistanceToNow, parseISO, format } from 'date-fns';
 import api from '../../api/client';
 import { Task, TaskType, LeadState, CallOutcome, CallAttempt } from '../../types';
@@ -107,6 +107,12 @@ const NEEDS_CALLBACK: CallOutcome[] = ['CALL_LATER'];
 const NEEDS_FOLLOWUP_TIME: CallOutcome[] = ['CONNECTED_FOLLOW_UP'];
 const NEEDS_CANCELLATION: CallOutcome[] = ['NOT_INTERESTED', 'WRONG_NUMBER'];
 
+interface LeadAlert {
+  type: 'updated' | 'cancelled';
+  message: string;
+  leadId: number;
+}
+
 export default function AgentQueue() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
@@ -124,6 +130,11 @@ export default function AgentQueue() {
   const [showHistory, setShowHistory] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  // Real-time alert from OMS via SSE
+  const [leadAlert, setLeadAlert] = useState<LeadAlert | null>(null);
+  const selectedIdRef = useRef<number | null>(null);
+  selectedIdRef.current = selectedId;
 
   const fetchQueue = useCallback(async (silent = false) => {
     if (!silent) setLoadingQueue(true);
@@ -143,6 +154,47 @@ export default function AgentQueue() {
     const interval = setInterval(() => fetchQueue(true), 10000);
     return () => clearInterval(interval);
   }, [fetchQueue]);
+
+  // ── SSE: real-time push from backend when OMS updates/cancels a lead ────────
+  useEffect(() => {
+    const token = sessionStorage.getItem('oh_token');
+    if (!token) return;
+
+    const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+
+    es.addEventListener('lead_updated', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      // Only alert if the agent is currently viewing this lead's task
+      const currentTask = tasks.find(t => t.lead_id === data.lead_id);
+      if (currentTask && selectedIdRef.current === currentTask.id) {
+        setLeadAlert({ type: 'updated', message: data.message, leadId: data.lead_id });
+        // Reload task detail so the agent sees fresh data immediately
+        setSelectedId(prev => { setTimeout(() => setSelectedId(prev), 50); return null; });
+      }
+      fetchQueue(true);
+    });
+
+    es.addEventListener('lead_cancelled', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      const currentTask = tasks.find(t => t.lead_id === data.lead_id);
+      if (currentTask) {
+        setLeadAlert({ type: 'cancelled', message: data.message, leadId: data.lead_id });
+        if (selectedIdRef.current === currentTask.id) {
+          setSelectedId(null);
+          setTaskDetail(null);
+        }
+      }
+      fetchQueue(true);
+    });
+
+    es.addEventListener('heartbeat', () => { /* keepalive — no action needed */ });
+
+    es.onerror = () => {
+      // Browser will auto-reconnect on error for EventSource
+    };
+
+    return () => es.close();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedId) { setTaskDetail(null); return; }
@@ -175,6 +227,9 @@ export default function AgentQueue() {
     setSubmitError('');
   };
 
+  const isOverdue = (task: Task) => task.due_at && new Date(task.due_at) < new Date();
+
+  // Surface LEAD_TERMINAL errors from the outcome API with a clear message
   const handleSubmit = async () => {
     if (!selectedOutcome || !selectedId) return;
     if (NEEDS_CALLBACK.includes(selectedOutcome) && !callbackTime) {
@@ -197,17 +252,45 @@ export default function AgentQueue() {
       setSelectedId(null);
       setTaskDetail(null);
       await fetchQueue(true);
-    } catch {
-      setSubmitError('Failed to submit. Please try again.');
+    } catch (err: any) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.error;
+      if (code === 'LEAD_TERMINAL') {
+        setLeadAlert({ type: 'cancelled', message: msg, leadId: taskDetail?.lead_id ?? 0 });
+        setSelectedId(null);
+        setTaskDetail(null);
+        await fetchQueue(true);
+      } else {
+        setSubmitError('Failed to submit. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
-  const isOverdue = (task: Task) => task.due_at && new Date(task.due_at) < new Date();
-
   return (
-    <div className="h-full flex bg-gray-50 dark:bg-gray-950">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
+      {/* OMS real-time alert banner */}
+      {leadAlert && (
+        <div className={`flex-shrink-0 flex items-start gap-3 px-5 py-3 text-sm font-medium border-b ${
+          leadAlert.type === 'cancelled'
+            ? 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+            : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+        }`}>
+          <span className="text-base flex-shrink-0">{leadAlert.type === 'cancelled' ? '🚫' : '⚠️'}</span>
+          <span className="flex-1">{leadAlert.message}</span>
+          <button
+            onClick={() => setLeadAlert(null)}
+            className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 flex overflow-hidden">
       {/* Left: Queue Panel */}
       <div className="w-80 flex-shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between flex-shrink-0">
@@ -298,6 +381,7 @@ export default function AgentQueue() {
 
       {/* Right: Detail Panel */}
       <div className="flex-1 overflow-y-auto">
+
         {!selectedId ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
@@ -342,6 +426,7 @@ export default function AgentQueue() {
           />
         ) : null}
       </div>
+      </div> {/* end flex-1 flex */}
     </div>
   );
 }

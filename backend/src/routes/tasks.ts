@@ -122,7 +122,21 @@ router.post('/:id/outcome', authenticate, async (req: Request, res: Response): P
     [taskId, task.lead_id, agentId, outcome, notes || null, cancellation_reason || null, callback_time || null]
   );
 
-  await processOutcome(taskId, task.lead_id, agentId, outcome, notes || null, callback_time || null, cancellation_reason || null);
+  try {
+    await processOutcome(taskId, task.lead_id, agentId, outcome, notes || null, callback_time || null, cancellation_reason || null);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.startsWith('LEAD_TERMINAL:')) {
+      const state = msg.split(':')[1];
+      res.status(409).json({
+        error: `This lead was already closed (state: ${state}) — possibly cancelled by OMS while you were on the call. Your call attempt has been recorded but no further tasks will be created.`,
+        lead_state: state,
+        code: 'LEAD_TERMINAL',
+      });
+      return;
+    }
+    throw err; // re-throw unexpected errors to global handler
+  }
 
   res.json({ message: 'Outcome logged successfully' });
 });

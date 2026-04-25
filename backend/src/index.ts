@@ -12,6 +12,7 @@ import tasksRouter from './routes/tasks';
 import leadsRouter from './routes/leads';
 import managerRouter from './routes/manager';
 import bucketsRouter from './routes/buckets';
+import eventsRouter from './routes/events';
 import { authenticate } from './middleware/auth';
 import { releaseExpiredLocks } from './services/assignmentEngine';
 
@@ -43,6 +44,7 @@ app.use('/api/tasks', authenticate, tasksRouter);
 app.use('/api/leads', authenticate, leadsRouter);
 app.use('/api/manager', authenticate, managerRouter);
 app.use('/api/buckets', authenticate, bucketsRouter);
+app.use('/api/events', eventsRouter); // SSE — auth is handled inside the router (needs raw res before headers flush)
 
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));
 
