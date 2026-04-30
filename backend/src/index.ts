@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Request logger — prints: timestamp METHOD /path status Xms [user=N | anon]
+// Request logger
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -44,33 +44,55 @@ app.use('/api/tasks', authenticate, tasksRouter);
 app.use('/api/leads', authenticate, leadsRouter);
 app.use('/api/manager', authenticate, managerRouter);
 app.use('/api/buckets', authenticate, bucketsRouter);
-app.use('/api/events', eventsRouter); // SSE — auth is handled inside the router (needs raw res before headers flush)
+app.use('/api/events', eventsRouter); // SSE — auth handled inside router
+
+// Cron endpoint: called by Vercel cron every minute to release expired task locks.
+// In local/traditional mode this is handled by setInterval below instead.
+app.post('/api/cron/release-locks', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers['authorization'] !== `Bearer ${secret}`) {
+    res.status(401).json({ error: 'Unauthorized' }); return;
+  }
+  try {
+    await releaseExpiredLocks();
+    res.json({ ok: true, time: new Date().toISOString() });
+  } catch (e) {
+    console.error('Cron release-locks error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
 
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));
 
-// Global async error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-async function start() {
-  await initSchema();
+// ── Local / traditional server mode (not Vercel) ──────────────────────────────
+// When deployed to Vercel, this file is imported as a module and `app` is the
+// default export. Vercel never calls listen(). The schema is initialised lazily
+// on the first request via the middleware below.
+if (process.env.VERCEL !== '1') {
+  async function start() {
+    await initSchema();
 
-  // Background job: release expired locks every 60 seconds
-  setInterval(async () => {
-    try { await releaseExpiredLocks(); } catch (e) { console.error('Lock release error:', e); }
-  }, 60 * 1000);
+    // Background job: release expired locks every 60 seconds (non-serverless only)
+    setInterval(async () => {
+      try { await releaseExpiredLocks(); } catch (e) { console.error('Lock release error:', e); }
+    }, 60 * 1000);
 
-  app.listen(PORT, () => {
-    console.log(`🚀 OH-LSQ backend running on http://localhost:${PORT}`);
-    console.log(`📋 Health: http://localhost:${PORT}/health`);
-    console.log(`🐘 Database: Neon PostgreSQL`);
-    console.log(`\nRun 'npm run seed' to populate with dummy data`);
-  });
+    app.listen(PORT, () => {
+      console.log(`🚀 OH-LSQ backend running on http://localhost:${PORT}`);
+      console.log(`📋 Health: http://localhost:${PORT}/health`);
+      console.log(`🐘 Database: Neon PostgreSQL`);
+      console.log(`\nRun 'npm run seed' to populate with dummy data`);
+    });
+  }
+  start().catch(err => { console.error('Failed to start server:', err); process.exit(1); });
+} else {
+  // Vercel: run schema migration once per cold start
+  initSchema().catch(err => console.error('Schema init error:', err));
 }
 
-start().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+export default app;
