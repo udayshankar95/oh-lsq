@@ -32,12 +32,14 @@ router.get('/', authenticate, async (req: Request, res: Response): Promise<void>
     `SELECT
       l.id, l.request_id, l.doctor_name, l.partner_name,
       l.state, l.attempt_count, l.max_attempts, l.created_at, l.updated_at,
+      l.sticky_agent_id,
       o.oms_order_id, o.patient_name, o.patient_phone, o.customer_name,
       o.tests, o.packages, o.order_value, o.preferred_slot,
       (SELECT COUNT(*) FROM tasks t WHERE t.lead_id = l.id)::int AS task_count,
       (SELECT u.name FROM tasks t JOIN users u ON t.assigned_to = u.id
        WHERE t.lead_id = l.id AND t.status IN ('ASSIGNED','IN_PROGRESS')
-       LIMIT 1) AS assigned_agent
+       LIMIT 1) AS assigned_agent,
+      (SELECT u.name FROM users u WHERE u.id = l.sticky_agent_id) AS sticky_agent_name
     FROM leads l
     LEFT JOIN orders o ON o.lead_id = l.id
     ${where}

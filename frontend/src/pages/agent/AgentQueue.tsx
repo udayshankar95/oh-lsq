@@ -431,6 +431,17 @@ export default function AgentQueue() {
   );
 }
 
+/** Safely format a slot string — handles ISO timestamps and plain strings like "7am-9am" */
+function formatSlot(slot: string): string {
+  try {
+    const d = parseISO(slot);
+    if (isNaN(d.getTime())) return slot; // not a valid date, show as-is
+    return format(d, 'MMM d, h:mm a');
+  } catch {
+    return slot;
+  }
+}
+
 function CallDetail({
   task, selectedOutcome, onOutcomeChange,
   notes, setNotes, callbackTime, setCallbackTime,
@@ -518,16 +529,16 @@ function CallDetail({
               </a>
               <p className="text-gray-400 dark:text-gray-500 text-xs">{task.oms_order_id}</p>
             </div>
-            {task.order_value > 0 && (
+            {Number(task.order_value) > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">Order Value</p>
-                <p className="text-gray-700 dark:text-gray-300 font-semibold">&#8377;{task.order_value.toLocaleString()}</p>
+                <p className="text-gray-700 dark:text-gray-300 font-semibold">&#8377;{Number(task.order_value).toLocaleString()}</p>
               </div>
             )}
             {task.preferred_slot && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">Preferred Slot</p>
-                <p className="text-gray-700 dark:text-gray-300">{format(parseISO(task.preferred_slot), 'MMM d, h:mm a')}</p>
+                <p className="text-gray-700 dark:text-gray-300">{formatSlot(task.preferred_slot)}</p>
               </div>
             )}
           </div>
@@ -614,7 +625,7 @@ function CallDetail({
                       </span>
                       <span className="text-xs text-gray-400 dark:text-gray-500">{attempt.agent_name}</span>
                       <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                        {format(parseISO(attempt.called_at), 'MMM d, h:mm a')}
+                        {formatSlot(attempt.called_at)}
                       </span>
                     </div>
                     {attempt.notes && (

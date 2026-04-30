@@ -54,6 +54,8 @@ export interface LeadRow {
   state: LeadState;
   attempt_count: number;
   max_attempts: number;
+  /** Agent who first handled this lead — all follow-up tasks are preferentially routed to them. */
+  sticky_agent_id: number | null;
   created_at: string;
   updated_at: string;
 }

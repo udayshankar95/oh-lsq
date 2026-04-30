@@ -181,6 +181,18 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_webhook_events_request_id ON webhook_events(request_id);
   `);
 
+  // ── Incremental migrations (idempotent) ─────────────────────────────────────
+  // sticky_agent_id: once a lead is assigned to an agent, all follow-up tasks
+  // are preferentially routed back to the same agent (falls back to round-robin
+  // if that agent is offline).
+  await query(`
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS sticky_agent_id INTEGER REFERENCES users(id);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_leads_sticky_agent ON leads(sticky_agent_id);
+  `);
+
   console.log('✅ Schema initialized');
 }
 
