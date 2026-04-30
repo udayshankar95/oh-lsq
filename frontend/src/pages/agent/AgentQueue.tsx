@@ -160,7 +160,10 @@ export default function AgentQueue() {
     const token = sessionStorage.getItem('oh_token');
     if (!token) return;
 
-    const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+    const sseBase = import.meta.env.VITE_API_BASE_URL
+      ? `${import.meta.env.VITE_API_BASE_URL}/api`
+      : '/api';
+    const es = new EventSource(`${sseBase}/events?token=${encodeURIComponent(token)}`);
 
     es.addEventListener('lead_updated', (e: MessageEvent) => {
       const data = JSON.parse(e.data);

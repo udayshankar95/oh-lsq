@@ -1,7 +1,13 @@
 import axios from 'axios';
 
+// In dev, Vite proxies /api → localhost:3001.
+// In production, VITE_API_BASE_URL points to the deployed backend (e.g. https://oh-lsq-backend.onrender.com).
+const baseURL = import.meta.env.VITE_API_BASE_URL
+  ? `${import.meta.env.VITE_API_BASE_URL}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL,
   headers: { 'Content-Type': 'application/json' },
 });
 
