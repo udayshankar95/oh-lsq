@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { query, queryOne, queryAll } from '../db/database';
 import { authenticate } from '../middleware/auth';
 import { processOutcome } from '../services/taskEngine';
+import { releaseExpiredLocks } from '../services/assignmentEngine';
 import { CallOutcome } from '../types';
 
 const router = Router();
@@ -9,6 +10,9 @@ const LOCK_DURATION_MINUTES = 10;
 
 router.get('/my-queue', authenticate, async (req: Request, res: Response): Promise<void> => {
   const agentId = req.user!.id;
+
+  // Piggyback lock cleanup on every queue fetch (replaces setInterval on serverless)
+  releaseExpiredLocks().catch(e => console.error('Lock release error:', e));
 
   const tasks = await queryAll(`
     SELECT
