@@ -50,49 +50,34 @@ export default function ManagerLayout() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-gray-950">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col sticky top-0 h-screen flex-shrink-0">
+    <div className="min-h-screen flex bg-gray-50">
+      {/* Sidebar — dark navy, matches internal tools */}
+      <aside className="w-56 bg-[#0F1923] flex flex-col sticky top-0 h-screen flex-shrink-0">
         {/* Logo */}
-        <div className="h-14 px-5 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <div className="h-12 px-4 flex items-center gap-2.5 border-b border-white/10">
+          <div className="w-6 h-6 rounded bg-[#E8762C] flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-gray-900 dark:text-white">OH-LSQ</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Manager View</p>
+            <p className="text-sm font-bold text-white tracking-wide">OH-LSQ</p>
+            <p className="text-xs text-gray-500">Manager</p>
           </div>
-          <button
-            onClick={toggleTheme}
-            className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-base flex-shrink-0"
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {theme === 'dark' ? (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-              </svg>
-            )}
-          </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 py-2 overflow-y-auto">
           {navItems.map(item => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-base ${
+                `flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors border-l-2 ${
                   isActive
-                    ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-400 font-semibold'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
+                    ? 'border-[#E8762C] text-white bg-white/5'
+                    : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
                 }`
               }
             >
@@ -103,20 +88,16 @@ export default function ManagerLayout() {
         </nav>
 
         {/* User footer */}
-        <div className="border-t border-gray-100 dark:border-gray-800 p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-900/40 flex items-center justify-center flex-shrink-0">
-              <span className="text-sm font-semibold text-brand-700 dark:text-brand-400">{user?.name?.charAt(0)}</span>
+        <div className="border-t border-white/10 p-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-[#E8762C] flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-bold text-white">{user?.name?.charAt(0)}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user?.name}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{user?.email}</p>
+              <p className="text-sm font-medium text-white truncate">{user?.name}</p>
+              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
-            <button
-              onClick={logout}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-base p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-              title="Sign out"
-            >
+            <button onClick={logout} className="text-gray-500 hover:text-white transition-colors p-1" title="Sign out">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
               </svg>

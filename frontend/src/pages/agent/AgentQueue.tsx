@@ -13,22 +13,22 @@ const TASK_TYPE_LABEL: Record<TaskType, string> = {
 };
 
 const TASK_TYPE_COLOR: Record<TaskType, string> = {
-  FIRST_CALL: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
-  RETRY_CALL: 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
-  CALLBACK: 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800',
-  FUTURE_CALL: 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-800',
+  FIRST_CALL: 'bg-blue-50 text-blue-700 border-blue-200',
+  RETRY_CALL: 'bg-orange-50 text-[#E8762C] border-orange-200',
+  CALLBACK: 'bg-gray-50 text-gray-600 border-gray-200',
+  FUTURE_CALL: 'bg-gray-50 text-gray-600 border-gray-200',
 };
 
 const OUTCOME_COLOR: Record<CallOutcome, string> = {
-  CONNECTED_SCHEDULED: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
-  CONNECTED_FOLLOW_UP: 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400',
-  CONNECTED_WILL_PAY: 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400',
-  NO_ANSWER: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
-  BUSY: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
-  SWITCHED_OFF: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
-  WRONG_NUMBER: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-  CALL_LATER: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
-  NOT_INTERESTED: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
+  CONNECTED_SCHEDULED: 'bg-green-50 text-green-700',
+  CONNECTED_FOLLOW_UP: 'bg-blue-50 text-blue-700',
+  CONNECTED_WILL_PAY: 'bg-green-50 text-green-700',
+  NO_ANSWER: 'bg-gray-100 text-gray-600',
+  BUSY: 'bg-gray-100 text-gray-600',
+  SWITCHED_OFF: 'bg-gray-100 text-gray-600',
+  WRONG_NUMBER: 'bg-red-50 text-red-600',
+  CALL_LATER: 'bg-orange-50 text-[#E8762C]',
+  NOT_INTERESTED: 'bg-red-50 text-red-600',
 };
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
