@@ -5,6 +5,9 @@ import { Task, TaskType, LeadState, CallOutcome, CallAttempt } from '../../types
 
 const OMS_BASE = 'https://oms.orangehealth.in/request';
 
+/** Show only last 4 digits — full number available via OMS link for click-to-call */
+const maskPhone = (p: string) => p ? '••••• ' + p.slice(-4) : '—';
+
 const TASK_TYPE_LABEL: Record<TaskType, string> = {
   FIRST_CALL: 'First Call',
   RETRY_CALL: 'Retry',
@@ -272,7 +275,7 @@ export default function AgentQueue() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="h-full flex flex-col bg-gray-50">
       {/* OMS real-time alert banner */}
       {leadAlert && (
         <div className={`flex-shrink-0 flex items-start gap-3 px-5 py-3 text-sm font-medium border-b ${
@@ -362,7 +365,7 @@ export default function AgentQueue() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{task.patient_name}</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{task.patient_phone}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate">{maskPhone(task.patient_phone)}</p>
                   </div>
                 </div>
                 {(task.tests?.length > 0 || task.packages?.length > 0) && (
@@ -505,13 +508,15 @@ function CallDetail({
               )}
             </div>
             <a
-              href={`tel:${task.patient_phone}`}
+              href={`${OMS_BASE}/${task.request_id}`}
+              target="_blank" rel="noopener noreferrer"
+              title="Open in OMS to initiate call"
               className="flex items-center gap-2 bg-green-500 hover:bg-green-600 active:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-base active:scale-95 shadow-sm"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/>
               </svg>
-              {task.patient_phone}
+              {maskPhone(task.patient_phone)}
             </a>
           </div>
 

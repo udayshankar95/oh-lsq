@@ -43,6 +43,14 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    to: '/users', label: 'Users', end: false,
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+      </svg>
+    ),
+  },
 ];
 
 export default function ManagerLayout() {
@@ -61,7 +69,7 @@ export default function ManagerLayout() {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-white tracking-wide">OH-LSQ</p>
+            <p className="text-sm font-bold text-white tracking-wide">OLMS</p>
             <p className="text-xs text-gray-500">Manager</p>
           </div>
         </div>

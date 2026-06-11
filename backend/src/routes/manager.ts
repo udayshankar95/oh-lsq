@@ -231,4 +231,49 @@ router.delete('/groups/:id/members/:agentId', authenticate, requireManager, asyn
   res.json({ message: 'Member removed' });
 });
 
+// ── User Management ───────────────────────────────────────────────────────────
+
+// List all users in the system
+router.get('/users', authenticate, requireManager, async (_req: Request, res: Response): Promise<void> => {
+  const users = await queryAll(
+    `SELECT id, name, email, role, city, is_punched_in, created_at FROM users ORDER BY role, name`
+  );
+  const allowed = await queryAll(`SELECT * FROM allowed_users ORDER BY added_at DESC`);
+  res.json({ users, allowed_users: allowed });
+});
+
+// Add to allowed_users list (pre-register access before Google SSO login)
+router.post('/users/allowed', authenticate, requireManager, async (req: Request, res: Response): Promise<void> => {
+  const { email, name, role } = req.body as { email: string; name: string; role: string };
+  if (!email || !name || !['agent','manager'].includes(role)) {
+    res.status(400).json({ error: 'email, name, and role (agent|manager) are required' }); return;
+  }
+  try {
+    const row = await queryOne<{ id: number }>(
+      `INSERT INTO allowed_users (email, name, role, added_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [email.toLowerCase().trim(), name.trim(), role, req.user!.id]
+    );
+    res.status(201).json({ id: row!.id, email, name, role });
+  } catch (e: any) {
+    if (e.message?.includes('unique')) { res.status(409).json({ error: 'Email already in allowed list' }); return; }
+    throw e;
+  }
+});
+
+// Remove from allowed_users
+router.delete('/users/allowed/:id', authenticate, requireManager, async (req: Request, res: Response): Promise<void> => {
+  await query(`DELETE FROM allowed_users WHERE id = $1`, [parseInt(req.params.id)]);
+  res.json({ message: 'Removed' });
+});
+
+// Change role of an existing user
+router.put('/users/:id/role', authenticate, requireManager, async (req: Request, res: Response): Promise<void> => {
+  const { role } = req.body as { role: string };
+  if (!['agent','manager'].includes(role)) { res.status(400).json({ error: 'Invalid role' }); return; }
+  const user = await queryOne<{ id: number }>(`SELECT id FROM users WHERE id = $1`, [parseInt(req.params.id)]);
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+  await query(`UPDATE users SET role = $1 WHERE id = $2`, [role, user.id]);
+  res.json({ message: 'Role updated' });
+});
+
 export default router;

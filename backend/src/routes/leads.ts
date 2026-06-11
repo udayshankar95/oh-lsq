@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/auth';
 const router = Router();
 
 router.get('/', authenticate, async (req: Request, res: Response): Promise<void> => {
-  const { q, state, doctor, page = '1', limit = '20' } = req.query as Record<string, string>;
+  const { q, state, doctor, attempt_count, lead_source, page = '1', limit = '20' } = req.query as Record<string, string>;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -17,8 +17,10 @@ router.get('/', authenticate, async (req: Request, res: Response): Promise<void>
     params.push(like, like, like, like, like);
     pIdx += 5;
   }
-  if (state) { conditions.push(`l.state = $${pIdx++}`); params.push(state); }
-  if (doctor) { conditions.push(`l.doctor_name ILIKE $${pIdx++}`); params.push(`%${doctor}%`); }
+  if (state)        { conditions.push(`l.state = $${pIdx++}`);          params.push(state); }
+  if (doctor)       { conditions.push(`l.doctor_name ILIKE $${pIdx++}`); params.push(`%${doctor}%`); }
+  if (attempt_count !== undefined) { conditions.push(`l.attempt_count = $${pIdx++}`); params.push(parseInt(attempt_count)); }
+  if (lead_source)  { conditions.push(`l.lead_source = $${pIdx++}`);    params.push(lead_source); }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -31,7 +33,7 @@ router.get('/', authenticate, async (req: Request, res: Response): Promise<void>
   const leads = await queryAll(
     `SELECT
       l.id, l.request_id, l.doctor_name, l.partner_name,
-      l.state, l.attempt_count, l.max_attempts, l.created_at, l.updated_at,
+      l.state, l.attempt_count, l.max_attempts, l.lead_source, l.created_at, l.updated_at,
       l.sticky_agent_id,
       o.oms_order_id, o.patient_name, o.patient_phone, o.customer_name,
       o.tests, o.packages, o.order_value, o.preferred_slot,

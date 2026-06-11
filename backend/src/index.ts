@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'OH-LSQ', db: 'neon-pg', time: new Date().toISOString() }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'OLMS', db: 'neon-pg', time: new Date().toISOString() }));
 
 app.use('/api/auth', authRouter);
 app.use('/api/oms', omsRouter);
@@ -83,7 +83,7 @@ if (process.env.VERCEL !== '1') {
     }, 60 * 1000);
 
     app.listen(PORT, () => {
-      console.log(`🚀 OH-LSQ backend running on http://localhost:${PORT}`);
+      console.log(`🚀 OLMS backend running on http://localhost:${PORT}`);
       console.log(`📋 Health: http://localhost:${PORT}/health`);
       console.log(`🐘 Database: Neon PostgreSQL`);
       console.log(`\nRun 'npm run seed' to populate with dummy data`);

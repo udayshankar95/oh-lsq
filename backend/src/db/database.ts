@@ -182,15 +182,29 @@ export async function initSchema(): Promise<void> {
   `);
 
   // ── Incremental migrations (idempotent) ─────────────────────────────────────
-  // sticky_agent_id: once a lead is assigned to an agent, all follow-up tasks
-  // are preferentially routed back to the same agent (falls back to round-robin
-  // if that agent is offline).
   await query(`
     ALTER TABLE leads
     ADD COLUMN IF NOT EXISTS sticky_agent_id INTEGER REFERENCES users(id);
   `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_leads_sticky_agent ON leads(sticky_agent_id);`);
+
+  // lead_source: supports multiple lead channels (B2C_OMT, D2C, D2C_CHAT, etc.)
   await query(`
-    CREATE INDEX IF NOT EXISTS idx_leads_sticky_agent ON leads(sticky_agent_id);
+    ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'B2C_OMT';
+  `);
+
+  // allowed_users: manager-controlled access list (pre-registers emails + roles)
+  // When Google SSO is added, login checks this table to assign role automatically.
+  await query(`
+    CREATE TABLE IF NOT EXISTS allowed_users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('agent', 'manager')),
+      added_by INTEGER REFERENCES users(id),
+      added_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   console.log('✅ Schema initialized');

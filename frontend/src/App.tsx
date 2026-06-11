@@ -5,11 +5,13 @@ import Login from './pages/Login';
 import AgentLayout from './layouts/AgentLayout';
 import ManagerLayout from './layouts/ManagerLayout';
 import AgentQueue from './pages/agent/AgentQueue';
+import AgentSummary from './pages/agent/AgentSummary';
 import ManagerDashboard from './pages/manager/ManagerDashboard';
 import LeadManagement from './pages/manager/LeadManagement';
 import AgentMonitor from './pages/manager/AgentMonitor';
 import QueueConfig from './pages/manager/QueueConfig';
 import AgentGroups from './pages/manager/AgentGroups';
+import UserManagement from './pages/manager/UserManagement';
 
 function AppRoutes() {
   const { user, isLoading } = useAuth();
@@ -42,6 +44,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<AgentLayout />}>
           <Route index element={<AgentQueue />} />
+          <Route path="summary" element={<AgentSummary />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -57,6 +60,7 @@ function AppRoutes() {
         <Route path="agents" element={<AgentMonitor />} />
         <Route path="queue-config" element={<QueueConfig />} />
         <Route path="groups" element={<AgentGroups />} />
+        <Route path="users" element={<UserManagement />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
