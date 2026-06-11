@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import pool, { initSchema } from './db/database';
+import { config } from './config';
 import authRouter from './routes/auth';
 import omsRouter from './routes/oms';
 import agentsRouter from './routes/agents';
@@ -17,10 +18,10 @@ import { authenticate } from './middleware/auth';
 import { releaseExpiredLocks } from './services/assignmentEngine';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = config.port;
 
-app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(cors({ origin: config.corsOrigin }));
+app.use(express.json({ limit: '2mb' }));
 
 // Request logger
 app.use((req, res, next) => {

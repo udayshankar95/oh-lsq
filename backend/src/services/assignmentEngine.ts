@@ -1,25 +1,29 @@
 import pool, { query, queryAll } from '../db/database';
+import { config } from '../config';
 
 // ─── assignTask ───────────────────────────────────────────────────────────────
-// Assigns a PENDING task to an agent, honouring sticky assignment:
+// Assigns a PENDING task to an agent, honouring:
 //
-//   1. Look up the lead's sticky_agent_id (set when the lead was first assigned).
-//   2. If that agent is currently punched in → assign directly to them.
-//   3. Otherwise fall back to round-robin (least-recently-assigned punched-in agent).
-//   4. On the very first assignment for a lead, record that agent as sticky_agent_id.
+//   1. Sticky assignment — prefer the agent who first handled this lead.
+//   2. Phone-number dedup — if the sticky agent (or any candidate) called a
+//      lead with the same patient phone within the last PHONE_DEDUP_WINDOW_MINUTES,
+//      skip them.  This prevents the same patient from being called twice in
+//      quick succession.
+//   3. Round-robin fallback — if no sticky agent is available, pick the
+//      least-recently-assigned punched-in agent who is not in the dedup window.
+//   4. On first assignment for a lead, record that agent as sticky_agent_id.
 //
-// Concurrency safety: the entire select-then-update runs inside a transaction
-// with FOR UPDATE SKIP LOCKED on both the task row and the chosen agent row.
-// This guarantees that under concurrent calls (e.g. 20 agents all getting tasks
-// at once), no two processes assign the same task or pick the same agent.
+// Concurrency: the entire select-then-update runs inside a single transaction
+// with FOR UPDATE SKIP LOCKED on both the task row and the chosen agent row,
+// guaranteeing no double-assignment under concurrent load.
 //
 export async function assignTask(taskId: number): Promise<number | null> {
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
 
-    // Lock the task row and fetch its lead_id in one shot.
-    // SKIP LOCKED: if another transaction already holds it we bail immediately.
+    // Lock the task row and get lead context in one shot.
     const taskLock = await client.query<{ id: number; lead_id: number }>(
       `SELECT id, lead_id FROM tasks
        WHERE id = $1 AND status = 'PENDING'
@@ -28,24 +32,48 @@ export async function assignTask(taskId: number): Promise<number | null> {
     );
 
     if (taskLock.rows.length === 0) {
-      // Task was already picked up by a concurrent assignTask call
       await client.query('ROLLBACK');
-      return null;
+      return null; // Already picked up by a concurrent call
     }
 
     const leadId = taskLock.rows[0].lead_id;
 
-    // Fetch sticky agent for this lead (may be NULL on first assignment)
+    // ── Fetch patient phone for this lead ───────────────────────────────────
+    const phoneRow = await client.query<{ patient_phone: string }>(
+      `SELECT o.patient_phone FROM orders o WHERE o.lead_id = $1 LIMIT 1`,
+      [leadId]
+    );
+    const patientPhone = phoneRow.rows[0]?.patient_phone ?? null;
+
+    // ── Find agents in the phone-dedup exclusion window ─────────────────────
+    // Any agent who called a lead with this phone number within the window
+    // is excluded from being assigned this task.
+    let dedupExclusions: number[] = [];
+
+    if (patientPhone) {
+      const dedupResult = await client.query<{ agent_id: number }>(
+        `SELECT DISTINCT ca.agent_id
+         FROM call_attempts ca
+         JOIN tasks t ON ca.task_id = t.id
+         JOIN orders o ON o.lead_id = t.lead_id
+         WHERE o.patient_phone = $1
+           AND ca.called_at > NOW() - ($2 || ' minutes')::INTERVAL`,
+        [patientPhone, config.PHONE_DEDUP_WINDOW_MINUTES]
+      );
+      dedupExclusions = dedupResult.rows.map(r => r.agent_id);
+    }
+
+    // ── Fetch sticky agent for this lead ────────────────────────────────────
     const stickyRow = await client.query<{ sticky_agent_id: number | null }>(
       `SELECT sticky_agent_id FROM leads WHERE id = $1`,
       [leadId]
     );
-    const stickyAgentId: number | null = stickyRow.rows[0]?.sticky_agent_id ?? null;
+    const stickyAgentId = stickyRow.rows[0]?.sticky_agent_id ?? null;
 
     let agentId: number | null = null;
 
-    // ── Step 1: try the sticky agent ─────────────────────────────────────────
-    if (stickyAgentId !== null) {
+    // ── Step 1: try the sticky agent ────────────────────────────────────────
+    if (stickyAgentId !== null && !dedupExclusions.includes(stickyAgentId)) {
       const stickyCheck = await client.query<{ id: number }>(
         `SELECT id FROM users
          WHERE id = $1 AND role = 'agent' AND is_punched_in = TRUE
@@ -55,34 +83,50 @@ export async function assignTask(taskId: number): Promise<number | null> {
       if (stickyCheck.rows.length > 0) {
         agentId = stickyAgentId;
       }
-      // If SKIP LOCKED skipped the row (rare concurrent lock), fall through to
-      // round-robin — this is safe; the sticky preference is best-effort under
-      // extreme concurrency.
     }
 
-    // ── Step 2: round-robin fallback ─────────────────────────────────────────
+    // ── Step 2: round-robin fallback ────────────────────────────────────────
     if (agentId === null) {
+      const exclusionClause = dedupExclusions.length > 0
+        ? `AND id NOT IN (${dedupExclusions.map((_, i) => `$${i + 2}`).join(', ')})`
+        : '';
+
       const agentResult = await client.query<{ id: number }>(
         `SELECT id FROM users
          WHERE role = 'agent' AND is_punched_in = TRUE
+         ${exclusionClause}
          ORDER BY last_assigned_at ASC NULLS FIRST, id ASC
          LIMIT 1
-         FOR UPDATE SKIP LOCKED`
+         FOR UPDATE SKIP LOCKED`,
+        dedupExclusions.length > 0 ? [null, ...dedupExclusions] : []
       );
 
-      if (agentResult.rows.length === 0) {
-        // No agents available right now — leave task PENDING
-        await client.query('ROLLBACK');
-        return null;
+      // Retry without exclusions if all agents are in the dedup window
+      // (edge case: small team, frequent calls — we prefer assignment over silence)
+      if (agentResult.rows.length === 0 && dedupExclusions.length > 0) {
+        const fallbackResult = await client.query<{ id: number }>(
+          `SELECT id FROM users
+           WHERE role = 'agent' AND is_punched_in = TRUE
+           ORDER BY last_assigned_at ASC NULLS FIRST, id ASC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED`
+        );
+        if (fallbackResult.rows.length > 0) {
+          agentId = fallbackResult.rows[0].id;
+        }
+      } else if (agentResult.rows.length > 0) {
+        agentId = agentResult.rows[0].id;
       }
-
-      agentId = agentResult.rows[0].id;
     }
 
-    // ── Assign the task ───────────────────────────────────────────────────────
+    if (agentId === null) {
+      await client.query('ROLLBACK');
+      return null; // No agents available — leave task PENDING
+    }
+
+    // ── Assign the task ──────────────────────────────────────────────────────
     await client.query(
-      `UPDATE tasks
-       SET status = 'ASSIGNED', assigned_to = $1, updated_at = NOW()
+      `UPDATE tasks SET status = 'ASSIGNED', assigned_to = $1, updated_at = NOW()
        WHERE id = $2`,
       [agentId, taskId]
     );
@@ -92,12 +136,11 @@ export async function assignTask(taskId: number): Promise<number | null> {
       [agentId]
     );
 
-    // ── Record sticky agent on first assignment ───────────────────────────────
-    // Only writes when sticky_agent_id IS NULL (i.e. first time this lead is assigned).
-    // Subsequent assignments (retries, callbacks) will already have a value here.
+    // ── Record sticky agent on first assignment ──────────────────────────────
     if (stickyAgentId === null) {
       await client.query(
-        `UPDATE leads SET sticky_agent_id = $1 WHERE id = $2 AND sticky_agent_id IS NULL`,
+        `UPDATE leads SET sticky_agent_id = $1
+         WHERE id = $2 AND sticky_agent_id IS NULL`,
         [agentId, leadId]
       );
     }
@@ -112,37 +155,45 @@ export async function assignTask(taskId: number): Promise<number | null> {
   }
 }
 
-// ─── redistributePendingTasks ─────────────────────────────────────────────────
-// Called when an agent punches in — assigns any PENDING tasks that are waiting.
+// ─── redistributePendingTasks ──────────────────────────────────────────────────
+// Called when an agent punches in.  Assigns PENDING tasks in batches to avoid
+// exhausting the connection pool.  Runs fire-and-forget from the punch-in
+// handler so the HTTP response is not held open.
 //
 export async function redistributePendingTasks(): Promise<void> {
   const pendingTasks = await queryAll<{ id: number }>(
-    `SELECT id FROM tasks WHERE status = 'PENDING' ORDER BY created_at ASC`
+    `SELECT id FROM tasks
+     WHERE status = 'PENDING'
+     ORDER BY created_at ASC
+     LIMIT $1`,
+    [config.MAX_REASSIGN_BATCH]
   );
-  // Sequential to avoid agent over-loading from burst parallel assigns
+
   for (const task of pendingTasks) {
     await assignTask(task.id);
   }
 }
 
-// ─── releaseAgentTasks ────────────────────────────────────────────────────────
-// Called on punch-out — releases all of an agent's ASSIGNED tasks back to PENDING
-// and redistributes them to remaining punched-in agents.
+// ─── releaseAgentTasks ─────────────────────────────────────────────────────────
+// Called on punch-out.  Releases the agent's ASSIGNED tasks back to PENDING,
+// then redistributes them.  Does not touch IN_PROGRESS tasks (the agent may
+// still be mid-call; lock expiry handles those).
 //
 export async function releaseAgentTasks(agentId: number): Promise<void> {
   await query(
     `UPDATE tasks
      SET status = 'PENDING', assigned_to = NULL,
          locked_at = NULL, lock_expires_at = NULL, updated_at = NOW()
-     WHERE assigned_to = $1 AND status IN ('ASSIGNED')`,
+     WHERE assigned_to = $1 AND status = 'ASSIGNED'`,
     [agentId]
   );
-  await redistributePendingTasks();
+  // Fire-and-forget — punch-out response should not wait for redistribution
+  redistributePendingTasks().catch(e => console.error('[releaseAgentTasks] redistribute error:', e));
 }
 
-// ─── releaseExpiredLocks ──────────────────────────────────────────────────────
-// Background job (runs every 60s): revert IN_PROGRESS tasks whose 10-min lock
-// has expired back to ASSIGNED so another agent can pick them up.
+// ─── releaseExpiredLocks ───────────────────────────────────────────────────────
+// Reverts IN_PROGRESS tasks whose lock has expired back to ASSIGNED so another
+// agent (or the same agent after reconnecting) can pick them up.
 //
 export async function releaseExpiredLocks(): Promise<void> {
   await query(

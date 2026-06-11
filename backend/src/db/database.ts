@@ -5,10 +5,12 @@ dotenv.config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  // rejectUnauthorized: true validates the server certificate — correct for
+  // Neon and other managed Postgres with valid TLS certs.
+  ssl: { rejectUnauthorized: true },
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 15000,
 });
 
 pool.on('error', (err) => {
@@ -82,12 +84,14 @@ export async function initSchema(): Promise<void> {
       partner_name TEXT,
       prescription_url TEXT,
       oh_notes TEXT,
+      lead_source TEXT NOT NULL DEFAULT 'B2C_OMT',
       state TEXT NOT NULL DEFAULT 'NEW' CHECK(state IN (
         'NEW','ATTEMPTING','CONNECTED','SCHEDULED',
-        'CALLBACK_SCHEDULED','UNREACHABLE','CANCELLED'
+        'CALLBACK_SCHEDULED','UNREACHABLE','CANCELLED','SYSTEM_DUPLICATE'
       )),
       attempt_count INTEGER DEFAULT 0,
       max_attempts INTEGER DEFAULT 3,
+      primary_lead_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -182,20 +186,29 @@ export async function initSchema(): Promise<void> {
   `);
 
   // ── Incremental migrations (idempotent) ─────────────────────────────────────
-  await query(`
-    ALTER TABLE leads
-    ADD COLUMN IF NOT EXISTS sticky_agent_id INTEGER REFERENCES users(id);
-  `);
+
+  await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS sticky_agent_id INTEGER REFERENCES users(id);`);
   await query(`CREATE INDEX IF NOT EXISTS idx_leads_sticky_agent ON leads(sticky_agent_id);`);
 
-  // lead_source: supports multiple lead channels (B2C_OMT, D2C, D2C_CHAT, etc.)
+  await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'B2C_OMT';`);
+
+  // primary_lead_id: set when a lead is a SYSTEM_DUPLICATE of an existing open lead
+  await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS primary_lead_id INTEGER REFERENCES leads(id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_leads_primary_lead ON leads(primary_lead_id);`);
+
+  // Index for phone-based dedup queries (assigned engine + OMS event handler)
+  await query(`CREATE INDEX IF NOT EXISTS idx_orders_patient_phone ON orders(patient_phone);`);
+
+  // Expand state constraint to include SYSTEM_DUPLICATE
+  await query(`ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_state_check;`);
   await query(`
-    ALTER TABLE leads
-    ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'B2C_OMT';
+    ALTER TABLE leads ADD CONSTRAINT leads_state_check CHECK(state IN (
+      'NEW','ATTEMPTING','CONNECTED','SCHEDULED','CALLBACK_SCHEDULED',
+      'UNREACHABLE','CANCELLED','SYSTEM_DUPLICATE'
+    ));
   `);
 
-  // allowed_users: manager-controlled access list (pre-registers emails + roles)
-  // When Google SSO is added, login checks this table to assign role automatically.
+  // allowed_users: manager-controlled access list for Google SSO login
   await query(`
     CREATE TABLE IF NOT EXISTS allowed_users (
       id SERIAL PRIMARY KEY,

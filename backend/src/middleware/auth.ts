@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { config } from '../config';
 import { AuthUser } from '../types';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
@@ -12,13 +11,24 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
 
   const token = authHeader.slice(7);
+  let decoded: unknown;
+
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.user = decoded;
-    next();
+    decoded = jwt.verify(token, config.jwtSecret);
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
+    return;
   }
+
+  const d = decoded as any;
+  if (!d || typeof d.id !== 'number' || !Number.isInteger(d.id) || d.id <= 0 ||
+      !['agent', 'manager'].includes(d.role) || typeof d.email !== 'string') {
+    res.status(401).json({ error: 'Invalid token payload' });
+    return;
+  }
+
+  req.user = decoded as AuthUser;
+  next();
 }
 
 export function requireManager(req: Request, res: Response, next: NextFunction): void {
@@ -30,5 +40,7 @@ export function requireManager(req: Request, res: Response, next: NextFunction):
 }
 
 export function signToken(user: AuthUser): string {
-  return jwt.sign(user as object, JWT_SECRET, { expiresIn: '8h' });
+  return jwt.sign(user as object, config.jwtSecret, {
+    expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'],
+  });
 }

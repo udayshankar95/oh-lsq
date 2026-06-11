@@ -57,20 +57,18 @@ router.post('/event', requireApiKey, async (req: Request, res: Response): Promis
   try {
     const result = await createLeadFromEvent(payload);
     await updateWebhookEvent(webhookId!, 'processed');
-    res.status(201).json({
-      message: 'Lead created and tasks assigned',
-      lead_id: result.leadId,
-      task_ids: result.taskIds,
+    res.status(result.isDuplicate ? 200 : 201).json({
+      message: result.isDuplicate
+        ? 'Lead created as system duplicate (open lead exists for this phone)'
+        : 'Lead created and task assigned',
+      lead_id:      result.leadId,
+      task_ids:     result.taskIds,
+      is_duplicate: result.isDuplicate,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    if (message.includes('already exists')) {
-      await updateWebhookEvent(webhookId!, 'failed', 'duplicate request_id');
-      res.status(409).json({ error: message });
-    } else {
-      await updateWebhookEvent(webhookId!, 'failed', message);
-      res.status(500).json({ error: message });
-    }
+    await updateWebhookEvent(webhookId!, 'failed', message);
+    res.status(500).json({ error: message });
   }
 });
 
@@ -295,7 +293,6 @@ router.post('/leads/:request_id/cancel', requireApiKey, async (req: Request, res
     return;
   }
 
-  // Already terminal — idempotent: treat as success
   if (lead.state === 'CANCELLED') {
     res.json({ message: 'Lead was already cancelled', lead_id: lead.id });
     return;
@@ -310,19 +307,28 @@ router.post('/leads/:request_id/cancel', requireApiKey, async (req: Request, res
 
   const prevState = lead.state;
 
-  // Abandon all open tasks
-  const abandoned = await query(
-    `UPDATE tasks
-     SET status = 'ABANDONED', updated_at = NOW()
-     WHERE lead_id = $1 AND status IN ('PENDING', 'ASSIGNED', 'IN_PROGRESS')`,
-    [lead.id]
-  );
-
-  // Cancel the lead
-  await query(
-    `UPDATE leads SET state = 'CANCELLED', updated_at = NOW() WHERE id = $1`,
-    [lead.id]
-  );
+  // Abandon tasks and cancel lead in a single transaction
+  const client = await (await import('../db/database')).default.connect();
+  let abandoned = { rowCount: 0 };
+  try {
+    await client.query('BEGIN');
+    const taskResult = await client.query(
+      `UPDATE tasks SET status = 'ABANDONED', updated_at = NOW()
+       WHERE lead_id = $1 AND status IN ('PENDING','ASSIGNED','IN_PROGRESS')`,
+      [lead.id]
+    );
+    await client.query(
+      `UPDATE leads SET state = 'CANCELLED', updated_at = NOW() WHERE id = $1`,
+      [lead.id]
+    );
+    await client.query('COMMIT');
+    abandoned = { rowCount: taskResult.rowCount ?? 0 };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   // Audit log
   logLeadEvent({

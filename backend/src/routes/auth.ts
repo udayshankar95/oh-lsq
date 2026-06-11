@@ -3,9 +3,10 @@ import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { queryOne, query } from '../db/database';
 import { authenticate, signToken } from '../middleware/auth';
+import { config } from '../config';
 import { UserRow } from '../types';
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client(config.googleClientId);
 
 const router = Router();
 
@@ -29,7 +30,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     email: user.email,
     role: user.role,
     city: user.city,
-    is_punched_in: user.is_punched_in as unknown as boolean,
+    is_punched_in: user.is_punched_in,
   };
 
   const token = signToken(authUser);
@@ -78,17 +79,23 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
   const role = (allowed?.role || user?.role || 'agent') as 'agent' | 'manager';
 
   if (!user) {
-    // First-time Google login — create account automatically
+    // First-time Google login — create account using ON CONFLICT to avoid
+    // a TOCTOU race if the same user logs in from two devices simultaneously.
     const randomHash = await bcrypt.hash(Math.random().toString(36) + Date.now(), 10);
-    user = await queryOne<UserRow>(
+    const insertResult = await queryOne<UserRow>(
       `INSERT INTO users (name, email, password_hash, role, city)
-       VALUES ($1, $2, $3, $4, 'Bangalore') RETURNING *`,
+       VALUES ($1, $2, $3, $4, 'Bangalore')
+       ON CONFLICT (email) DO NOTHING
+       RETURNING *`,
       [name, email, randomHash, role]
     );
+    // If ON CONFLICT fired, fetch the existing row
+    user = insertResult ?? await queryOne<UserRow>(
+      `SELECT * FROM users WHERE email = $1`, [email]
+    );
   } else if (allowed && user.role !== allowed.role) {
-    // Role changed in allowed_users — sync it
     await query(`UPDATE users SET role = $1 WHERE id = $2`, [allowed.role, user.id]);
-    user = { ...user, role: allowed.role as any };
+    user = { ...user, role: allowed.role as UserRow['role'] };
   }
 
   const authUser = {
@@ -97,7 +104,7 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
     email: user!.email,
     role: user!.role,
     city: user!.city,
-    is_punched_in: user!.is_punched_in as unknown as boolean,
+    is_punched_in: user!.is_punched_in,
   };
 
   const token = signToken(authUser);

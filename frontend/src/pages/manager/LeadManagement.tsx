@@ -14,6 +14,7 @@ const STATE_BADGE: Record<LeadState, { bg: string; text: string; label: string }
   CALLBACK_SCHEDULED: { bg: 'bg-gray-100',  text: 'text-gray-600',  label: 'Callback Due' },
   UNREACHABLE:        { bg: 'bg-red-50',    text: 'text-red-500',   label: 'Unreachable' },
   CANCELLED:          { bg: 'bg-gray-50',   text: 'text-gray-400',  label: 'Cancelled' },
+  SYSTEM_DUPLICATE:   { bg: 'bg-gray-100',  text: 'text-gray-400',  label: 'Duplicate' },
 };
 
 const SOURCE_BADGE: Record<string, string> = {

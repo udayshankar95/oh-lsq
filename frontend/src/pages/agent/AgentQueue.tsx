@@ -9,17 +9,18 @@ const OMS_BASE = 'https://oms.orangehealth.in/request';
 const maskPhone = (p: string) => p ? '••••• ' + p.slice(-4) : '—';
 
 const TASK_TYPE_LABEL: Record<TaskType, string> = {
-  FIRST_CALL: 'First Call',
-  RETRY_CALL: 'Retry',
-  CALLBACK: 'Callback',
-  FUTURE_CALL: 'Follow-up',
+  FIRST_CALL:  'First Call',
+  RETRY_CALL:  'Retry',
+  CALLBACK:    'Callback',
+  /** FUTURE_CALL is always a payment follow-up — patient said "Will Pay Later" */
+  FUTURE_CALL: 'Payment Follow-up',
 };
 
 const TASK_TYPE_COLOR: Record<TaskType, string> = {
-  FIRST_CALL: 'bg-blue-50 text-blue-700 border-blue-200',
-  RETRY_CALL: 'bg-orange-50 text-[#E8762C] border-orange-200',
-  CALLBACK: 'bg-gray-50 text-gray-600 border-gray-200',
-  FUTURE_CALL: 'bg-gray-50 text-gray-600 border-gray-200',
+  FIRST_CALL:  'bg-blue-50 text-blue-700 border-blue-200',
+  RETRY_CALL:  'bg-orange-50 text-[#E8762C] border-orange-200',
+  CALLBACK:    'bg-gray-50 text-gray-600 border-gray-200',
+  FUTURE_CALL: 'bg-green-50 text-green-700 border-green-200',
 };
 
 const OUTCOME_COLOR: Record<CallOutcome, string> = {
@@ -326,7 +327,7 @@ export default function AgentQueue() {
               { id: 'FIRST_CALL',  label: 'First Call' },
               { id: 'RETRY_CALL',  label: 'Retry' },
               { id: 'CALLBACK',    label: 'Callback' },
-              { id: 'FUTURE_CALL', label: 'Follow-up' },
+              { id: 'FUTURE_CALL', label: 'Payment Follow-up' },
               { id: 'overdue',   label: '⚠ Overdue' },
             ].map(chip => {
               const count = chip.id === 'all'
@@ -507,6 +508,10 @@ function CallDetail({
   const needsFollowupTime = selectedOutcome && NEEDS_FOLLOWUP_TIME.includes(selectedOutcome);
   const needsCancellation = selectedOutcome && NEEDS_CANCELLATION.includes(selectedOutcome);
 
+  // Auto-expand history for non-first-call tasks so agents see prior context
+  const shouldAutoExpand = task.type !== 'FIRST_CALL' && (task.call_history?.length ?? 0) > 0;
+  const effectiveShowHistory = showHistory || shouldAutoExpand;
+
   return (
     <div className="max-w-2xl mx-auto px-5 py-5">
       {/* Header */}
@@ -638,50 +643,102 @@ function CallDetail({
         </div>
       )}
 
+      {/* ── Call History ─────────────────────────────────────────────────────
+           Auto-expanded for retry / callback / payment follow-up tasks so
+           agents always see prior context before dialling.                  */}
       {(task.call_history?.length ?? 0) > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 mb-4">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-base"
-          >
-            <span className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <div className="bg-white border border-gray-200 mb-4">
+          {/* "Last worked" summary strip — always visible */}
+          {task.call_history && task.call_history.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+              <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
               </svg>
-              Call History ({task.call_history?.length} attempt{task.call_history?.length !== 1 ? 's' : ''})
+              <span className="text-xs text-gray-500">
+                Last worked <span className="font-medium text-gray-700">{formatSlot(task.call_history[0].called_at)}</span>
+                {' '}by <span className="font-medium text-gray-700">{task.call_history[0].agent_name}</span>
+                {' '}— <span className={`font-medium ${OUTCOME_COLOR[task.call_history[0].outcome]}`}>
+                  {OUTCOME_LABEL[task.call_history[0].outcome]}
+                </span>
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Full History ({task.call_history?.length} attempt{task.call_history?.length !== 1 ? 's' : ''})
             </span>
-            <svg className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${showHistory ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className={`w-4 h-4 text-gray-400 transition-transform ${showHistory ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
             </svg>
           </button>
-          {showHistory && (
-            <div className="px-4 pb-4 space-y-3">
+          {effectiveShowHistory && (
+            <div className="px-4 pb-4 pt-1 space-y-3">
               {task.call_history?.map((attempt: CallAttempt, i: number) => (
                 <div key={attempt.id} className="flex gap-3">
                   <div className="flex flex-col items-center">
-                    <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 dark:text-gray-400">
+                    <div className="w-5 h-5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
                       {task.call_history!.length - i}
                     </div>
-                    {i < (task.call_history?.length ?? 0) - 1 && <div className="w-px flex-1 bg-gray-100 dark:bg-gray-800 my-1"/>}
+                    {i < (task.call_history?.length ?? 0) - 1 && <div className="w-px flex-1 bg-gray-100 my-1"/>}
                   </div>
                   <div className="flex-1 pb-2">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${OUTCOME_COLOR[attempt.outcome]}`}>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium ${OUTCOME_COLOR[attempt.outcome]}`}>
                         {OUTCOME_LABEL[attempt.outcome]}
                       </span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">{attempt.agent_name}</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                        {formatSlot(attempt.called_at)}
-                      </span>
+                      <span className="text-xs text-gray-500">{attempt.agent_name}</span>
+                      <span className="text-xs text-gray-400 ml-auto">{formatSlot(attempt.called_at)}</span>
                     </div>
                     {attempt.notes && (
-                      <p className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 italic">"{attempt.notes}"</p>
+                      <p className="text-xs text-gray-500 bg-gray-50 px-2.5 py-1.5 italic">"{attempt.notes}"</p>
                     )}
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Other Leads for this patient ─────────────────────────────────────
+           Shows system-duplicate leads and any other open leads for the same
+           phone number — so agents can spot if a different team member is
+           already working this patient.                                      */}
+      {(task as any).other_leads?.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 mb-4">
+          <div className="px-4 py-2.5 border-b border-amber-200 flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+            </svg>
+            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+              Other leads for this patient ({(task as any).other_leads.length})
+            </span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {(task as any).other_leads.map((ol: any) => (
+              <a
+                key={ol.id}
+                href={`${OMS_BASE}/${ol.request_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between px-4 py-2.5 hover:bg-amber-100 transition-colors"
+              >
+                <div>
+                  <span className="text-xs font-mono text-amber-700">{ol.request_id}</span>
+                  {ol.primary_lead_id && (
+                    <span className="ml-2 text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 font-medium">DUPLICATE</span>
+                  )}
+                  <p className="text-[10px] text-amber-600 mt-0.5">{ol.patient_name} · {ol.state.replace(/_/g, ' ')}</p>
+                </div>
+                <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+              </a>
+            ))}
+          </div>
         </div>
       )}
 

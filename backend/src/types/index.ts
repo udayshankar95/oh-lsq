@@ -31,7 +31,7 @@ export interface UserRow {
   password_hash: string;
   role: 'agent' | 'manager';
   city: string;
-  is_punched_in: number;
+  is_punched_in: boolean;
   last_assigned_at: string | null;
   created_at: string;
 }
@@ -51,11 +51,14 @@ export interface LeadRow {
   partner_name: string;
   prescription_url: string | null;
   oh_notes: string | null;
+  lead_source: string;
   state: LeadState;
   attempt_count: number;
   max_attempts: number;
-  /** Agent who first handled this lead — all follow-up tasks are preferentially routed to them. */
+  /** Agent who first handled this lead. */
   sticky_agent_id: number | null;
+  /** Set when this lead is a system duplicate of an existing open lead. */
+  primary_lead_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -122,7 +125,11 @@ export type LeadState =
   | 'SCHEDULED'
   | 'CALLBACK_SCHEDULED'
   | 'UNREACHABLE'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  /** Created from OMS but suppressed from the workable funnel — another open
+   *  lead already exists for the same patient phone number. Visible as "Other
+   *  Leads" in the primary lead's detail view so agents can cross-reference. */
+  | 'SYSTEM_DUPLICATE';
 
 export type TaskType = 'FIRST_CALL' | 'RETRY_CALL' | 'CALLBACK' | 'FUTURE_CALL';
 

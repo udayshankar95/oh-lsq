@@ -5,8 +5,11 @@ import { authenticate } from '../middleware/auth';
 const router = Router();
 
 router.get('/', authenticate, async (req: Request, res: Response): Promise<void> => {
-  const { q, state, doctor, attempt_count, lead_source, page = '1', limit = '20' } = req.query as Record<string, string>;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const { q, state, doctor, attempt_count, lead_source } = req.query as Record<string, string>;
+  // Bound page + limit to prevent runaway queries
+  const safePage  = Math.max(parseInt(req.query.page  as string, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 20, 1), 100);
+  const offset = (safePage - 1) * safeLimit;
   const conditions: string[] = [];
   const params: unknown[] = [];
   let pIdx = 1;
@@ -19,8 +22,15 @@ router.get('/', authenticate, async (req: Request, res: Response): Promise<void>
   }
   if (state)        { conditions.push(`l.state = $${pIdx++}`);          params.push(state); }
   if (doctor)       { conditions.push(`l.doctor_name ILIKE $${pIdx++}`); params.push(`%${doctor}%`); }
-  if (attempt_count !== undefined) { conditions.push(`l.attempt_count = $${pIdx++}`); params.push(parseInt(attempt_count)); }
-  if (lead_source)  { conditions.push(`l.lead_source = $${pIdx++}`);    params.push(lead_source); }
+  if (attempt_count !== undefined) {
+    const ac = parseInt(attempt_count, 10);
+    if (!isNaN(ac) && ac >= 0) { conditions.push(`l.attempt_count = $${pIdx++}`); params.push(ac); }
+  }
+  if (lead_source) { conditions.push(`l.lead_source = $${pIdx++}`); params.push(lead_source); }
+  // By default, exclude system duplicates from the lead list unless explicitly requested
+  if (!state || state !== 'SYSTEM_DUPLICATE') {
+    conditions.push(`l.state != 'SYSTEM_DUPLICATE'`);
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -48,12 +58,12 @@ router.get('/', authenticate, async (req: Request, res: Response): Promise<void>
     GROUP BY l.id, o.id
     ORDER BY l.updated_at DESC
     LIMIT $${pIdx} OFFSET $${pIdx + 1}`,
-    [...params, parseInt(limit), offset]
+    [...params, safeLimit, offset]
   );
 
   res.json({
     data: leads.map(formatLead),
-    pagination: { total, page: parseInt(page), limit: parseInt(limit) },
+    pagination: { total, page: safePage, limit: safeLimit },
   });
 });
 

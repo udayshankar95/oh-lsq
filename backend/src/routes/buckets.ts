@@ -24,6 +24,8 @@ router.post('/', authenticate, requireManager, async (req: Request, res: Respons
   res.status(201).json({ ...bucket, conditions: JSON.parse(bucket.conditions) });
 });
 
+// IMPORTANT: /reorder/apply must be declared BEFORE /:id to avoid Express
+// matching "reorder" as the :id parameter.
 router.put('/:id', authenticate, requireManager, async (req: Request, res: Response): Promise<void> => {
   const bucketId = parseInt(req.params.id);
   const { name, conditions, is_active } = req.body;
