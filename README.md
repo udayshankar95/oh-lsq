@@ -21,21 +21,6 @@ npm install
 npm run dev       # starts on http://localhost:3000
 ```
 
----
-
-## Login Credentials
-
-| Role    | Email              | Password    |
-|---------|--------------------|-------------|
-| Manager | manager1@oh.in     | password123 |
-| Manager | manager2@oh.in     | password123 |
-| Agent   | agent1@oh.in       | password123 |
-| Agent   | agent2@oh.in       | password123 |
-| Agent   | agent3@oh.in       | password123 |
-| Agent   | agent4@oh.in       | password123 (punched out) |
-| Agent   | agent5@oh.in       | password123 |
-
----
 
 ## Architecture
 
