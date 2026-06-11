@@ -4,7 +4,7 @@ An internal calling operations platform for the Orange Health agent team. OLMS s
 
 **Live:** https://ohleadmanagement.vercel.app
 **API:** https://backend-blue-eight-71.vercel.app
-**Full guide:** See `OLMS_Overview_and_API_Guide.docx`
+**Full guide:** `OLMS_Overview_and_API_Guide.docx`
 
 ---
 
@@ -49,7 +49,7 @@ cd oh-lead-management-system
 ```bash
 cd backend
 npm install
-cp .env.example .env    # fill in DATABASE_URL, JWT_SECRET, GOOGLE_CLIENT_ID
+cp .env.example .env    # fill in all required variables
 npm run dev             # http://localhost:3001
 npm run seed            # populate demo data
 ```
@@ -61,103 +61,143 @@ npm install
 npm run dev             # http://localhost:3000
 ```
 
+Schema migrations run automatically on server startup.
+
 ---
 
 ## Environment variables
 
-**Backend (`.env`)**
+**Backend (`.env`)** — see `.env.example` for the full template
 
-```
-DATABASE_URL=postgresql://...?sslmode=require
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=8h
-OMS_API_KEY=shared-key-for-oms-webhooks
-GOOGLE_CLIENT_ID=your-google-oauth-client-id
-NODE_ENV=production
-```
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon PostgreSQL — use `sslmode=require` (no `channel_binding`) |
+| `JWT_SECRET` | Long random string — required in production, no default |
+| `JWT_EXPIRES_IN` | Token lifetime, e.g. `8h` |
+| `OMS_API_KEY` | Shared secret sent by OMS in `X-API-Key` header |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID |
+| `CORS_ORIGIN` | Frontend URL in production (e.g. `https://ohleadmanagement.vercel.app`) |
+| `NODE_ENV` | `production` — missing required vars cause immediate startup failure |
 
 **Frontend**
 
-```
-VITE_API_BASE_URL=https://your-backend-url.vercel.app
-```
+| Variable | Description |
+|---|---|
+| `VITE_API_BASE_URL` | Backend URL (e.g. `https://backend-blue-eight-71.vercel.app`) |
 
 ---
 
-## Login (after seeding)
+## Login
 
 | Role | Email | Password |
 |---|---|---|
 | Manager | manager1@oh.in | password123 |
 | Agent | agent1@oh.in | password123 |
 
-For production: managers add team emails via **Manager → Users**, then everyone logs in with Google (`@orangehealth.in`).
+Production: managers add team emails via **Manager → Users → Grant Access**, then everyone logs in with their `@orangehealth.in` Google account — account created automatically with the assigned role.
+
+---
+
+## Lead states
+
+| State | Meaning |
+|---|---|
+| `NEW` | Received from OMS, not yet called |
+| `ATTEMPTING` | First or subsequent call in progress |
+| `CONNECTED` | Spoke to patient, follow-up pending |
+| `CALLBACK_SCHEDULED` | Patient requested a specific callback time |
+| `SCHEDULED` | Patient booked — lead complete |
+| `UNREACHABLE` | Max attempts exhausted |
+| `CANCELLED` | OMS or agent closed the lead |
+| `SYSTEM_DUPLICATE` | Same patient phone already has an open lead — suppressed from queue, visible as "Other Leads" on the original lead |
 
 ---
 
 ## Key API endpoints
 
-**OMS Integration** — requires `X-API-Key` header
+**OMS Integration** — `X-API-Key: <key>` header required
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/oms/event` | Create a lead from OMS request |
-| PUT | `/api/oms/leads/:request_id` | Update patient/order details |
-| POST | `/api/oms/leads/:request_id/cancel` | Cancel a lead |
-| POST | `/api/oms/bulk` | Bulk create up to 500 leads |
+| `POST` | `/api/oms/event` | Create lead — auto-detects phone duplicates |
+| `PUT` | `/api/oms/leads/:request_id` | Update patient/order details |
+| `POST` | `/api/oms/leads/:request_id/cancel` | Cancel lead + abandon tasks (atomic) |
+| `POST` | `/api/oms/bulk` | Bulk create up to 500 leads |
 
-**Agent** — requires `Authorization: Bearer <token>`
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/agents/punch-in` | Start shift |
-| POST | `/api/agents/punch-out` | End shift |
-| GET | `/api/tasks/my-queue` | Prioritised task list |
-| POST | `/api/tasks/:id/outcome` | Log call result |
-| GET | `/api/agents/summary` | Day-by-day performance stats |
-
-**Manager** — requires `Authorization: Bearer <token>`
+**Agent** — `Authorization: Bearer <token>` required
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/manager/dashboard` | Live metrics |
-| GET | `/api/leads` | Lead list with filters |
-| POST | `/api/manager/leads/:id/reassign` | Reassign to agent |
-| GET | `/api/manager/users` | User + access list |
-| POST | `/api/manager/users/allowed` | Grant access |
+| `POST` | `/api/agents/punch-in` | Start shift — pending tasks assigned immediately |
+| `POST` | `/api/agents/punch-out` | End shift — tasks redistributed async |
+| `GET` | `/api/tasks/my-queue` | Prioritised queue (overdue callbacks → retries → first calls → payment follow-ups) |
+| `POST` | `/api/tasks/:id/start` | Lock task for 10 min (atomic ASSIGNED → IN_PROGRESS) |
+| `POST` | `/api/tasks/:id/outcome` | Log outcome — drives state machine |
+| `GET` | `/api/agents/summary?from=&to=` | Day-by-day performance |
+
+Task detail (`GET /api/tasks/:id`) returns:
+- `call_history` — full timeline of prior attempts for this lead
+- `other_leads` — other leads for the same patient phone (system duplicates + open leads)
+
+**Manager** — `Authorization: Bearer <token>` required
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/manager/dashboard` | Live metrics |
+| `GET` | `/api/leads?state=&attempt_count=&lead_source=&q=` | Lead list (max 100/page, SYSTEM_DUPLICATE excluded by default) |
+| `POST` | `/api/manager/leads/:id/reassign` | Reassign to agent |
+| `GET/POST/DELETE` | `/api/manager/users/allowed` | Manage access list |
+| `PUT` | `/api/manager/users/:id/role` | Change user role |
 
 ---
 
 ## Features
 
 **Live today**
-- OMS webhook ingestion (create / update / cancel) with idempotency
-- Lead + task state machine with automatic retry and callback scheduling
-- Agent queue UI with priority sorting, filter chips, outcome logging
-- Round-robin + sticky agent assignment (concurrency-safe, 20 agents)
+- OMS webhook ingestion (create / update / cancel) with idempotency via `ON CONFLICT`
+- Lead + task state machine — retry (4h), callback (user-scheduled), payment follow-up (2h)
+- **System duplicate detection** — same patient phone already open → `SYSTEM_DUPLICATE`, no tasks, shown as "Other Leads" in agent view
+- **Phone dedup window (1h)** — agent won't receive another lead for the same phone number within 1 hour
+- **Call history always visible** — auto-expanded for 2nd/3rd attempt and payment follow-up tasks with "Last worked by X at Y" summary
+- **Payment Follow-up** — `WILL_PAY_LATER` outcome creates a dedicated payment reminder task with distinct badge
+- Agent queue with priority sorting, filter chips (First Call / Retry / Callback / Payment Follow-up / Overdue)
+- Round-robin + sticky agent assignment (concurrency-safe via `SELECT FOR UPDATE SKIP LOCKED`)
 - Real-time notifications when OMS cancels a lead mid-call
 - Manager dashboard: live stats, lead management, agent performance
 - Google Sign In with manager-controlled access list
-- Phone number masking (last 4 digits visible)
-- Multi-lead source: B2C_OMT, D2C, D2C_CHAT
+- Phone number masking (last 4 digits visible only)
+- Multi-lead source: `B2C_OMT`, `D2C`, `D2C_CHAT`
 - Agent daily summary with CSV download
-- Full audit trail
+- Full audit trail — every call, state change, and assignment logged
 
 **Coming next**
 - Business hours scheduling (hold after 11 PM, resume at 8 AM)
-- SLA breach alerts
-- Ozontel click-to-call
+- SLA breach alerts (first call >10 min after lead creation)
+- Ozontel click-to-call integration
 - Bulk reassign + CSV export
-- WhatsApp/SMS reminders
+- WhatsApp/SMS reminders for confirmed appointments
+- OMS write-back (sync confirmed slot back to OMS)
+
+---
+
+## Architecture notes
+
+**`src/config.ts`** — single source of truth for all env vars and business constants. Process exits immediately in production if required vars are missing — no silent fallbacks.
+
+**Transaction safety** — lead+order creation, lead cancellation, and task-lock transitions all run in dedicated transactions. `processOutcome` uses an atomic `UPDATE WHERE status IN ... RETURNING` gate to prevent double-processing under concurrent requests.
+
+**Concurrency** — assignment uses `SELECT FOR UPDATE SKIP LOCKED` on both the task row and the chosen agent row. Phone-dedup exclusion list is computed per-assignment from `call_attempts` joined through to `orders`.
+
+**Serverless notes** — schema migrations run on local `npm run dev` and apply to the shared Neon DB. Vercel deployments skip `initSchema()` to avoid cold-start timeouts. Lock cleanup runs fire-and-forget on every `GET /tasks/my-queue` call.
 
 ---
 
 ## Deployment
 
-The repo includes ready-to-use deployment configs:
+```
+render.yaml          # full Render deployment (backend + frontend)
+backend/vercel.json  # Vercel serverless config
+frontend/vercel.json # Vercel SPA routing (all paths → index.html)
+```
 
-- `render.yaml` — full Render deployment (backend + frontend, free tier)
-- `backend/vercel.json` — Vercel serverless config
-- `frontend/vercel.json` — Vercel SPA routing
-
-Connect to Render or Vercel, add environment variables, deploy. Schema migrations run automatically on first server start.
+Connect to Render or Vercel, add the environment variables listed above, deploy.
