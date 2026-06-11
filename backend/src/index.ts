@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-import { initSchema } from './db/database';
+import pool, { initSchema } from './db/database';
 import authRouter from './routes/auth';
 import omsRouter from './routes/oms';
 import agentsRouter from './routes/agents';
@@ -91,8 +91,11 @@ if (process.env.VERCEL !== '1') {
   }
   start().catch(err => { console.error('Failed to start server:', err); process.exit(1); });
 } else {
-  // Vercel: run schema migration once per cold start
-  initSchema().catch(err => console.error('Schema init error:', err));
+  // Vercel: schema is managed by local dev server (runs initSchema on startup).
+  // Do NOT run initSchema here — it saturates the Neon connection pool on cold start
+  // and causes FUNCTION_INVOCATION_TIMEOUT on the first request.
+  // Just run a lightweight keepalive ping to establish the pool connection early.
+  pool.query('SELECT 1').catch((err: unknown) => console.error('DB ping error:', err));
 }
 
 export default app;
