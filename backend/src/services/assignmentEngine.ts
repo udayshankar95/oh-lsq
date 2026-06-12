@@ -4,13 +4,14 @@ import { config } from '../config';
 // ─── assignTask ───────────────────────────────────────────────────────────────
 // Assigns a PENDING task to an agent, honouring:
 //
-//   1. Sticky assignment — prefer the agent who first handled this lead.
-//   2. Phone-number dedup — if the sticky agent (or any candidate) called a
-//      lead with the same patient phone within the last PHONE_DEDUP_WINDOW_MINUTES,
-//      skip them.  This prevents the same patient from being called twice in
-//      quick succession.
+//   1. System-wide phone dedup — if ANY agent called a lead with this patient's
+//      phone number within PHONE_DEDUP_WINDOW_MINUTES, the task stays PENDING
+//      for the whole system (not just for that agent).  releaseExpiredLocks()
+//      retries PENDING tasks periodically so the task is automatically assigned
+//      once the window clears.
+//   2. Sticky assignment — prefer the agent who first handled this lead.
 //   3. Round-robin fallback — if no sticky agent is available, pick the
-//      least-recently-assigned punched-in agent who is not in the dedup window.
+//      least-recently-assigned punched-in agent.
 //   4. On first assignment for a lead, record that agent as sticky_agent_id.
 //
 // Concurrency: the entire select-then-update runs inside a single transaction
@@ -45,22 +46,27 @@ export async function assignTask(taskId: number): Promise<number | null> {
     );
     const patientPhone = phoneRow.rows[0]?.patient_phone ?? null;
 
-    // ── Find agents in the phone-dedup exclusion window ─────────────────────
-    // Any agent who called a lead with this phone number within the window
-    // is excluded from being assigned this task.
-    let dedupExclusions: number[] = [];
-
+    // ── System-wide phone dedup check ───────────────────────────────────────
+    // If ANY agent called a lead with this phone within the dedup window,
+    // leave the task PENDING for the entire system — not just for that agent.
+    // The task will be retried automatically by releaseExpiredLocks once the
+    // window clears.
     if (patientPhone) {
-      const dedupResult = await client.query<{ agent_id: number }>(
-        `SELECT DISTINCT ca.agent_id
-         FROM call_attempts ca
-         JOIN tasks t ON ca.task_id = t.id
-         JOIN orders o ON o.lead_id = t.lead_id
-         WHERE o.patient_phone = $1
-           AND ca.called_at > NOW() - ($2 || ' minutes')::INTERVAL`,
+      const recentCall = await client.query<{ called: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1
+           FROM call_attempts ca
+           JOIN tasks t  ON ca.task_id  = t.id
+           JOIN orders o ON o.lead_id   = t.lead_id
+           WHERE o.patient_phone = $1
+             AND ca.called_at > NOW() - ($2 || ' minutes')::INTERVAL
+         ) AS called`,
         [patientPhone, config.PHONE_DEDUP_WINDOW_MINUTES]
       );
-      dedupExclusions = dedupResult.rows.map(r => r.agent_id);
+      if (recentCall.rows[0]?.called) {
+        await client.query('ROLLBACK');
+        return null; // Hold PENDING — patient was called too recently
+      }
     }
 
     // ── Fetch sticky agent for this lead ────────────────────────────────────
@@ -73,7 +79,7 @@ export async function assignTask(taskId: number): Promise<number | null> {
     let agentId: number | null = null;
 
     // ── Step 1: try the sticky agent ────────────────────────────────────────
-    if (stickyAgentId !== null && !dedupExclusions.includes(stickyAgentId)) {
+    if (stickyAgentId !== null) {
       const stickyCheck = await client.query<{ id: number }>(
         `SELECT id FROM users
          WHERE id = $1 AND role = 'agent' AND is_punched_in = TRUE
@@ -87,34 +93,14 @@ export async function assignTask(taskId: number): Promise<number | null> {
 
     // ── Step 2: round-robin fallback ────────────────────────────────────────
     if (agentId === null) {
-      const exclusionClause = dedupExclusions.length > 0
-        ? `AND id NOT IN (${dedupExclusions.map((_, i) => `$${i + 2}`).join(', ')})`
-        : '';
-
       const agentResult = await client.query<{ id: number }>(
         `SELECT id FROM users
          WHERE role = 'agent' AND is_punched_in = TRUE
-         ${exclusionClause}
          ORDER BY last_assigned_at ASC NULLS FIRST, id ASC
          LIMIT 1
-         FOR UPDATE SKIP LOCKED`,
-        dedupExclusions.length > 0 ? [null, ...dedupExclusions] : []
+         FOR UPDATE SKIP LOCKED`
       );
-
-      // Retry without exclusions if all agents are in the dedup window
-      // (edge case: small team, frequent calls — we prefer assignment over silence)
-      if (agentResult.rows.length === 0 && dedupExclusions.length > 0) {
-        const fallbackResult = await client.query<{ id: number }>(
-          `SELECT id FROM users
-           WHERE role = 'agent' AND is_punched_in = TRUE
-           ORDER BY last_assigned_at ASC NULLS FIRST, id ASC
-           LIMIT 1
-           FOR UPDATE SKIP LOCKED`
-        );
-        if (fallbackResult.rows.length > 0) {
-          agentId = fallbackResult.rows[0].id;
-        }
-      } else if (agentResult.rows.length > 0) {
+      if (agentResult.rows.length > 0) {
         agentId = agentResult.rows[0].id;
       }
     }
@@ -192,13 +178,20 @@ export async function releaseAgentTasks(agentId: number): Promise<void> {
 }
 
 // ─── releaseExpiredLocks ───────────────────────────────────────────────────────
-// Reverts IN_PROGRESS tasks whose lock has expired back to ASSIGNED so another
-// agent (or the same agent after reconnecting) can pick them up.
+// Called fire-and-forget on every GET /tasks/my-queue.
+//
+// 1. Reverts IN_PROGRESS tasks whose lock has expired back to ASSIGNED.
+// 2. Retries PENDING tasks — this picks up tasks that were held back by the
+//    phone-dedup window once enough time has passed.
 //
 export async function releaseExpiredLocks(): Promise<void> {
   await query(
     `UPDATE tasks
      SET status = 'ASSIGNED', locked_at = NULL, lock_expires_at = NULL, updated_at = NOW()
      WHERE status = 'IN_PROGRESS' AND lock_expires_at < NOW()`
+  );
+  // Retry PENDING tasks — handles dedup-held tasks becoming assignable again
+  redistributePendingTasks().catch(e =>
+    console.error('[releaseExpiredLocks] redistribute error:', e)
   );
 }
