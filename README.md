@@ -148,6 +148,8 @@ Task detail (`GET /api/tasks/:id`) returns:
 | `POST` | `/api/manager/leads/:id/reassign` | Reassign to agent |
 | `GET/POST/DELETE` | `/api/manager/users/allowed` | Manage access list |
 | `PUT` | `/api/manager/users/:id/role` | Change user role |
+| `GET` | `/api/manager/settings` | All configurable system settings with labels and last-updated info |
+| `PUT` | `/api/manager/settings/:key` | Update a setting value (validated against min/max bounds) |
 
 ---
 
@@ -155,9 +157,10 @@ Task detail (`GET /api/tasks/:id`) returns:
 
 **Live today**
 - OMS webhook ingestion (create / update / cancel) with idempotency via `ON CONFLICT`
-- Lead + task state machine — retry (4h), callback (user-scheduled), payment follow-up (2h)
+- Lead + task state machine — retry, callback, payment follow-up (all delays configurable)
+- **Configurable call timing** — manager controls retry delay, follow-up delay, payment reminder delay, max attempts, and phone dedup window from Queue Config → Call Timing
 - **System duplicate detection** — same patient phone already open → `SYSTEM_DUPLICATE`, no tasks, shown as "Other Leads" in agent view
-- **Phone dedup window (1h)** — agent won't receive another lead for the same phone number within 1 hour
+- **System-wide phone dedup** — if ANY agent called a phone number within the dedup window, the lead stays PENDING for the whole system until the window clears (auto-retried every ~10s)
 - **Call history always visible** — auto-expanded for 2nd/3rd attempt and payment follow-up tasks with "Last worked by X at Y" summary
 - **Payment Follow-up** — `WILL_PAY_LATER` outcome creates a dedicated payment reminder task with distinct badge
 - Agent queue with priority sorting, filter chips (First Call / Retry / Callback / Payment Follow-up / Overdue)
@@ -186,7 +189,9 @@ Task detail (`GET /api/tasks/:id`) returns:
 
 **Transaction safety** — lead+order creation, lead cancellation, and task-lock transitions all run in dedicated transactions. `processOutcome` uses an atomic `UPDATE WHERE status IN ... RETURNING` gate to prevent double-processing under concurrent requests.
 
-**Concurrency** — assignment uses `SELECT FOR UPDATE SKIP LOCKED` on both the task row and the chosen agent row. Phone-dedup exclusion list is computed per-assignment from `call_attempts` joined through to `orders`.
+**Concurrency** — assignment uses `SELECT FOR UPDATE SKIP LOCKED` on both the task row and the chosen agent row. The system-wide phone dedup check fires before any agent selection — if the phone was called by anyone within the window, the task returns `null` (stays PENDING) immediately.
+
+**Configurable settings** — `src/services/settingsService.ts` maintains a 60-second in-memory cache of `system_settings`. `processOutcome` and `createLeadFromEvent` read live values so manager changes apply within one cache TTL without a deployment.
 
 **Serverless notes** — schema migrations run on local `npm run dev` and apply to the shared Neon DB. Vercel deployments skip `initSchema()` to avoid cold-start timeouts. Lock cleanup runs fire-and-forget on every `GET /tasks/my-queue` call.
 
