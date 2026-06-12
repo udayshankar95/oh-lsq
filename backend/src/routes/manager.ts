@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { query, queryOne, queryAll } from '../db/database';
 import { authenticate, requireManager } from '../middleware/auth';
 import { assignTask } from '../services/assignmentEngine';
+import { getSettingsWithMeta, updateSetting } from '../services/settingsService';
 
 const router = Router();
 
@@ -229,6 +230,44 @@ router.delete('/groups/:id/members/:agentId', authenticate, requireManager, asyn
   const agentId = parseInt(req.params.agentId);
   await query(`DELETE FROM agent_group_members WHERE group_id = $1 AND agent_id = $2`, [groupId, agentId]);
   res.json({ message: 'Member removed' });
+});
+
+// ── System Settings ───────────────────────────────────────────────────────────
+
+// GET /api/manager/settings — all configurable settings with metadata
+router.get('/settings', authenticate, requireManager, async (_req: Request, res: Response): Promise<void> => {
+  const settings = await getSettingsWithMeta();
+  res.json(settings);
+});
+
+// PUT /api/manager/settings/:key — update a single setting value
+router.put('/settings/:key', authenticate, requireManager, async (req: Request, res: Response): Promise<void> => {
+  const { key } = req.params;
+  const { value } = req.body as { value?: string };
+
+  if (value === undefined || value === null || String(value).trim() === '') {
+    res.status(400).json({ error: 'value is required' }); return;
+  }
+
+  const numValue = parseFloat(String(value));
+  if (isNaN(numValue) || numValue <= 0) {
+    res.status(400).json({ error: 'value must be a positive number' }); return;
+  }
+
+  // Validate against the min/max for this key
+  const setting = await queryOne<{ min_value: number; max_value: number; label: string }>(
+    `SELECT min_value, max_value, label FROM system_settings WHERE key = $1`, [key]
+  );
+  if (!setting) { res.status(404).json({ error: `Unknown setting: ${key}` }); return; }
+
+  if (numValue < setting.min_value || numValue > setting.max_value) {
+    res.status(400).json({
+      error: `${setting.label} must be between ${setting.min_value} and ${setting.max_value}`,
+    }); return;
+  }
+
+  await updateSetting(key, String(numValue), req.user!.id);
+  res.json({ message: `${setting.label} updated to ${numValue}` });
 });
 
 // ── User Management ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, DragEndEvent,
@@ -100,6 +100,18 @@ const CONDITION_TEMPLATES = [
   { label: 'Custom (edit JSON)', conditions: {} },
 ];
 
+interface SystemSetting {
+  key: string;
+  value: string;
+  label: string;
+  description: string;
+  unit: string;
+  min: number;
+  max: number;
+  updated_at: string | null;
+  updated_by_name: string | null;
+}
+
 export default function QueueConfig() {
   const [buckets, setBuckets] = useState<PriorityBucket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,6 +123,40 @@ export default function QueueConfig() {
   const [formName, setFormName] = useState('');
   const [formConditions, setFormConditions] = useState('{}');
   const [formError, setFormError] = useState('');
+
+  // ── Call Timing Settings ──────────────────────────────────────────────────
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [settingDrafts, setSettingDrafts] = useState<Record<string, string>>({});
+  const [settingSaving, setSettingSaving] = useState<Record<string, boolean>>({});
+  const [settingErrors, setSettingErrors] = useState<Record<string, string>>({});
+  const [settingSuccess, setSettingSuccess] = useState<Record<string, boolean>>({});
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await api.get('/manager/settings');
+      setSettings(res.data);
+      const drafts: Record<string, string> = {};
+      res.data.forEach((s: SystemSetting) => { drafts[s.key] = s.value; });
+      setSettingDrafts(drafts);
+    } catch (e) { console.error(e); }
+  }, []);
+
+  const handleSettingSave = async (key: string) => {
+    const val = settingDrafts[key];
+    setSettingSaving(p => ({ ...p, [key]: true }));
+    setSettingErrors(p => ({ ...p, [key]: '' }));
+    setSettingSuccess(p => ({ ...p, [key]: false }));
+    try {
+      await api.put(`/manager/settings/${key}`, { value: val });
+      setSettingSuccess(p => ({ ...p, [key]: true }));
+      setTimeout(() => setSettingSuccess(p => ({ ...p, [key]: false })), 2000);
+      await fetchSettings();
+    } catch (e: any) {
+      setSettingErrors(p => ({ ...p, [key]: e?.response?.data?.error || 'Failed to save' }));
+    } finally {
+      setSettingSaving(p => ({ ...p, [key]: false }));
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -128,7 +174,7 @@ export default function QueueConfig() {
     }
   };
 
-  useEffect(() => { fetchBuckets(); }, []);
+  useEffect(() => { fetchBuckets(); fetchSettings(); }, [fetchSettings]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -269,7 +315,61 @@ export default function QueueConfig() {
         </DndContext>
       )}
 
-      <div className="mt-6 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+      {/* ── Call Timing Settings ───────────────────────────────────────────── */}
+      {settings.length > 0 && (
+        <div className="mt-8">
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-gray-900">Call Timing</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Controls how long the system waits before scheduling the next action after each call outcome.</p>
+          </div>
+          <div className="bg-white border border-gray-200 divide-y divide-gray-100">
+            {settings.map(s => (
+              <div key={s.key} className="px-5 py-4 flex items-start gap-6">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{s.label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
+                  {s.updated_by_name && s.updated_at && (
+                    <p className="text-[10px] text-gray-300 mt-1">
+                      Last updated by {s.updated_by_name}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center border border-gray-200 bg-gray-50 focus-within:border-[#E8762C] transition-colors">
+                    <input
+                      type="number"
+                      min={s.min}
+                      max={s.max}
+                      step={s.unit === 'hours' ? 0.5 : 5}
+                      value={settingDrafts[s.key] ?? s.value}
+                      onChange={e => setSettingDrafts(p => ({ ...p, [s.key]: e.target.value }))}
+                      className="w-20 px-3 py-2 text-sm text-gray-900 bg-transparent outline-none text-right"
+                    />
+                    <span className="pr-3 text-xs text-gray-400">{s.unit}</span>
+                  </div>
+                  <button
+                    onClick={() => handleSettingSave(s.key)}
+                    disabled={settingSaving[s.key] || settingDrafts[s.key] === s.value}
+                    className={`px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                      settingSuccess[s.key]
+                        ? 'bg-green-500 text-white'
+                        : 'bg-[#E8762C] text-white hover:bg-[#d4692a]'
+                    }`}
+                  >
+                    {settingSaving[s.key] ? '…' : settingSuccess[s.key] ? '✓ Saved' : 'Save'}
+                  </button>
+                </div>
+                {settingErrors[s.key] && (
+                  <p className="text-xs text-red-500 mt-1">{settingErrors[s.key]}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Changes take effect within 60 seconds for active calls.</p>
+        </div>
+      )}
+
+      <div className="mt-8 bg-gray-50 border border-gray-200 p-4">
         <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Condition Keys Reference</p>
         <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">{`{
   "task_type": ["FIRST_CALL", "RETRY_CALL", "CALLBACK", "FUTURE_CALL"],

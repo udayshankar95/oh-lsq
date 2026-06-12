@@ -1,5 +1,6 @@
 import pool, { query, queryOne, logLeadEvent } from '../db/database';
 import { config } from '../config';
+import { getNumericSetting } from './settingsService';
 import { CallOutcome, LeadState, TaskType } from '../types';
 import { assignTask } from './assignmentEngine';
 
@@ -65,6 +66,13 @@ export async function processOutcome(
 
   const { attempt_count, max_attempts } = countResult.rows[0];
 
+  // ── Read live settings (cached, ~60s TTL) ───────────────────────────────────
+  const [retryDelayHours, followUpMinutes, paymentReminderMinutes] = await Promise.all([
+    getNumericSetting('retry_delay_hours',       config.RETRY_DELAY_HOURS),
+    getNumericSetting('followup_delay_minutes',  config.FOLLOW_UP_DELAY_MINUTES),
+    getNumericSetting('payment_reminder_minutes',config.PAYMENT_REMINDER_MINUTES),
+  ]);
+
   // ── Drive state machine ────────────────────────────────────────────────────
   switch (outcome) {
     case 'CONNECTED_SCHEDULED':
@@ -73,13 +81,13 @@ export async function processOutcome(
 
     case 'CONNECTED_FOLLOW_UP':
       await updateLeadState(leadId, 'CONNECTED', agentId, outcome);
-      await createNextTask(leadId, taskId, 'RETRY_CALL', minutesFromNow(config.FOLLOW_UP_DELAY_MINUTES));
+      await createNextTask(leadId, taskId, 'RETRY_CALL', minutesFromNow(followUpMinutes));
       break;
 
     case 'CONNECTED_WILL_PAY':
       // Patient confirmed they will pay — schedule a payment-reminder call
       await updateLeadState(leadId, 'CONNECTED', agentId, outcome);
-      await createNextTask(leadId, taskId, 'FUTURE_CALL', minutesFromNow(config.PAYMENT_REMINDER_MINUTES));
+      await createNextTask(leadId, taskId, 'FUTURE_CALL', minutesFromNow(paymentReminderMinutes));
       break;
 
     case 'NO_ANSWER':
@@ -89,7 +97,7 @@ export async function processOutcome(
         await updateLeadState(leadId, 'UNREACHABLE', agentId, outcome);
       } else {
         await updateLeadState(leadId, 'ATTEMPTING', agentId, outcome);
-        await createNextTask(leadId, taskId, 'RETRY_CALL', hoursFromNow(config.RETRY_DELAY_HOURS));
+        await createNextTask(leadId, taskId, 'RETRY_CALL', hoursFromNow(retryDelayHours));
       }
       break;
 

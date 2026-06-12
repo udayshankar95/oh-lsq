@@ -1,6 +1,8 @@
 import pool, { logLeadEvent } from '../db/database';
 import { OmsEventPayload } from '../types';
+import { getNumericSetting } from './settingsService';
 import { createFirstCallTask } from './taskEngine';
+import { config } from '../config';
 
 // ─── createLeadFromEvent ───────────────────────────────────────────────────────
 // Creates a lead + orders + first-call tasks from an OMS webhook payload.
@@ -52,6 +54,9 @@ export async function createLeadFromEvent(
   const isDuplicate = primaryLeadId !== null;
   const initialState = isDuplicate ? 'SYSTEM_DUPLICATE' : 'NEW';
 
+  // Read max_attempts from live settings (configurable per manager)
+  const maxAttempts = await getNumericSetting('max_attempts', 3);
+
   // ── Transaction: insert lead + orders ───────────────────────────────────
   const client = await pool.connect();
   let leadId: number;
@@ -63,8 +68,8 @@ export async function createLeadFromEvent(
     // check the returned row to detect the case.
     const leadResult = await client.query<{ id: number }>(
       `INSERT INTO leads (request_id, doctor_name, partner_name, prescription_url,
-         oh_notes, lead_source, state, primary_lead_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         oh_notes, lead_source, state, max_attempts, primary_lead_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (request_id) DO NOTHING
        RETURNING id`,
       [
@@ -75,6 +80,7 @@ export async function createLeadFromEvent(
         payload.oh_notes ?? null,
         (payload as any).lead_source ?? 'B2C_OMT',
         initialState,
+        maxAttempts,
         primaryLeadId,
       ]
     );

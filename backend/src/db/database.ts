@@ -208,6 +208,33 @@ export async function initSchema(): Promise<void> {
     ));
   `);
 
+  // system_settings: manager-configurable call timing and operational parameters
+  await query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      label TEXT NOT NULL,
+      description TEXT NOT NULL,
+      unit TEXT NOT NULL DEFAULT '',
+      min_value NUMERIC NOT NULL DEFAULT 0,
+      max_value NUMERIC NOT NULL DEFAULT 9999,
+      display_order INTEGER NOT NULL DEFAULT 99,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMPTZ
+    );
+  `);
+  // Seed defaults — ON CONFLICT DO NOTHING so manager changes are preserved
+  await query(`
+    INSERT INTO system_settings
+      (key, value, label, description, unit, min_value, max_value, display_order) VALUES
+      ('retry_delay_hours',        '4',   'Retry Delay',           'Hours to wait before retrying after No Answer, Busy, or Switched Off', 'hours',   0.5, 48, 1),
+      ('followup_delay_minutes',   '30',  'Follow-up Delay',       'Minutes before scheduling a follow-up call after patient says "needs follow-up"', 'minutes', 5, 1440, 2),
+      ('payment_reminder_minutes', '120', 'Payment Reminder Delay','Minutes before calling back a patient who said "will pay later"',              'minutes', 15, 1440, 3),
+      ('max_attempts',             '3',   'Max Call Attempts',     'Number of unanswered attempts before a lead is marked Unreachable',            'attempts', 1, 10, 4),
+      ('phone_dedup_window_minutes','60', 'Phone Dedup Window',    'Minutes within which the same phone number will not be reassigned to the same agent', 'minutes', 0, 480, 5)
+    ON CONFLICT (key) DO NOTHING;
+  `);
+
   // allowed_users: manager-controlled access list for Google SSO login
   await query(`
     CREATE TABLE IF NOT EXISTS allowed_users (
